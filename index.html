@@ -65,6 +65,8 @@ const GROUPS_KEY="respondm_groups_v1";
 const METAS_KEY="respondm_metas_v1";
 const FIN_KEY="respondm_fin_v1";
 const MSG_KEY="respondm_msg_v1"; // template de cobrança editável
+// Emails autorizados a usar o app (a segurança real está nas regras do Firestore)
+const AUTHORIZED_EMAILS=["roberthjhow@gmail.com","pablonatan.d.r.s@gmail.com"];
 
 /* ─────────────────────────────────────────────
    Camada de persistência — Firebase Firestore
@@ -3133,7 +3135,31 @@ function LoginScreen({onLogin}){
   const [senha,setSenha]=useState("");
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
-  async function handleLogin(){
+  const [showEmailLogin,setShowEmailLogin]=useState(false); // email/senha como reserva
+  const ERR_MAP={
+    "auth/invalid-credential":"Email ou senha incorretos.",
+    "auth/wrong-password":"Senha incorreta.",
+    "auth/user-not-found":"Usuário não encontrado.",
+    "auth/invalid-email":"Email inválido.",
+    "auth/too-many-requests":"Muitas tentativas. Aguarde alguns minutos.",
+    "auth/network-request-failed":"Sem conexão com a internet.",
+    "auth/popup-closed-by-user":"Login cancelado.",
+    "auth/popup-blocked":"O navegador bloqueou a janela de login. Permita pop-ups e tente de novo.",
+    "auth/unauthorized-domain":"Este domínio não está autorizado no Firebase."
+  };
+  async function handleGoogleLogin(){
+    setLoading(true);setErr("");
+    try{
+      const provider=new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({prompt:"select_account"});
+      await fbAuth.signInWithPopup(provider);
+      onLogin();
+    }catch(e){
+      setErr(ERR_MAP[e.code]||("Erro ao entrar: "+(e.message||e.code)));
+      setLoading(false);
+    }
+  }
+  async function handleEmailLogin(){
     if(!email.trim()||!senha){setErr("Preencha email e senha.");return;}
     setLoading(true);setErr("");
     try{
@@ -3141,15 +3167,7 @@ function LoginScreen({onLogin}){
       localStorage.setItem("rdm_last_email",email.trim());
       onLogin();
     }catch(e){
-      const map={
-        "auth/invalid-credential":"Email ou senha incorretos.",
-        "auth/wrong-password":"Senha incorreta.",
-        "auth/user-not-found":"Usuário não encontrado.",
-        "auth/invalid-email":"Email inválido.",
-        "auth/too-many-requests":"Muitas tentativas. Aguarde alguns minutos.",
-        "auth/network-request-failed":"Sem conexão com a internet."
-      };
-      setErr(map[e.code]||("Erro ao entrar: "+(e.message||e.code)));
+      setErr(ERR_MAP[e.code]||("Erro ao entrar: "+(e.message||e.code)));
       setLoading(false);
     }
   }
@@ -3158,13 +3176,23 @@ function LoginScreen({onLogin}){
       <div style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:20,padding:32,width:"100%",maxWidth:380,boxShadow:"var(--shadow-md)"}}>
         <div style={{fontSize:24,fontWeight:800,letterSpacing:"-.03em",marginBottom:4}}>respon<span style={{color:"var(--purple)"}}>DM</span></div>
         <div style={{fontSize:13,color:"var(--text3)",marginBottom:24}}>Controle de Assinaturas</div>
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <FInput label="Email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} onKeyDown={e=>{if(e.key==="Enter")handleLogin();}} placeholder="seu@email.com" autoFocus/>
-          <FInput label="Senha" type="password" value={senha} onChange={e=>{setSenha(e.target.value);setErr("");}} onKeyDown={e=>{if(e.key==="Enter")handleLogin();}} placeholder="••••••••"/>
-          {err&&<div style={{fontSize:12,color:"var(--red)",background:"var(--red-bg)",border:"1px solid var(--red)",borderRadius:9,padding:"8px 12px",fontWeight:600}}>{err}</div>}
-          <Btn onClick={handleLogin} style={{marginTop:4,opacity:loading?.6:1,pointerEvents:loading?"none":"auto"}}>{loading?"Entrando...":"Entrar"}</Btn>
-        </div>
-        <div style={{fontSize:11,color:"var(--text3)",marginTop:18,lineHeight:1.6}}>Seus dados ficam protegidos na nuvem (Firebase). Acesse de qualquer dispositivo com este login.</div>
+        {err&&<div style={{fontSize:12,color:"var(--red)",background:"var(--red-bg)",border:"1px solid var(--red)",borderRadius:9,padding:"8px 12px",fontWeight:600,marginBottom:14}}>{err}</div>}
+        {/* Botão principal: Google */}
+        <button onClick={handleGoogleLogin} disabled={loading} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,width:"100%",padding:"11px 16px",borderRadius:11,border:"1.5px solid var(--border2)",background:"var(--surface)",color:"var(--text)",fontSize:14,fontWeight:600,cursor:loading?"default":"pointer",fontFamily:"inherit",opacity:loading?.6:1}}>
+          <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          {loading?"Entrando...":"Entrar com Google"}
+        </button>
+        {/* Email/senha — reserva, escondido por padrão */}
+        {showEmailLogin?(
+          <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:18,borderTop:"1px solid var(--border)",paddingTop:18}}>
+            <FInput label="Email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} onKeyDown={e=>{if(e.key==="Enter")handleEmailLogin();}} placeholder="seu@email.com"/>
+            <FInput label="Senha" type="password" value={senha} onChange={e=>{setSenha(e.target.value);setErr("");}} onKeyDown={e=>{if(e.key==="Enter")handleEmailLogin();}} placeholder="••••••••"/>
+            <Btn variant="secondary" onClick={handleEmailLogin} style={{opacity:loading?.6:1,pointerEvents:loading?"none":"auto"}}>{loading?"Entrando...":"Entrar com email e senha"}</Btn>
+          </div>
+        ):(
+          <button onClick={()=>{setShowEmailLogin(true);setErr("");}} style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:11,fontWeight:600,marginTop:14,fontFamily:"inherit",textDecoration:"underline",width:"100%"}}>Entrar com email e senha</button>
+        )}
+        <div style={{fontSize:11,color:"var(--text3)",marginTop:18,lineHeight:1.6}}>Seus dados ficam protegidos na nuvem (Firebase). Apenas contas autorizadas têm acesso.</div>
       </div>
     </div>
   );
@@ -3177,6 +3205,7 @@ function App(){
   const [user,setUser]=useState(null);             // usuário Firebase logado
   const [cloudLoading,setCloudLoading]=useState(true); // carregando dados da nuvem
   const [showShortcuts,setShowShortcuts]=useState(false);
+  const [denied,setDenied]=useState(false);        // logou mas email não autorizado
   const globalSearchRef=useRef();const jsonRestoreRef=useRef();const cloudJsonRef=useRef();
 
   useEffect(()=>{document.body.classList.toggle("dark",dark);localStorage.setItem("rdm_dark",dark?"1":"0");},[dark]);
@@ -3185,7 +3214,15 @@ function App(){
 
   // Observa o estado de login do Firebase
   useEffect(()=>{
-    const unsub=fbAuth.onAuthStateChanged(u=>{setUser(u);setAuthReady(true);});
+    const unsub=fbAuth.onAuthStateChanged(u=>{
+      if(u&&u.email&&!AUTHORIZED_EMAILS.includes(u.email.toLowerCase())){
+        // logou com uma conta não autorizada — desloga e avisa
+        setDenied(true);setUser(null);setAuthReady(true);
+        fbAuth.signOut();
+        return;
+      }
+      setDenied(false);setUser(u);setAuthReady(true);
+    });
     return unsub;
   },[]);
 
@@ -3367,6 +3404,16 @@ function App(){
 
   // ── Telas de gate: aguardando auth / login / carregando nuvem ──
   if(!authReady)return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text3)",fontSize:14}}>Carregando…</div>);
+  if(denied)return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"var(--surface)",border:"1.5px solid var(--red)",borderRadius:20,padding:32,width:"100%",maxWidth:380,boxShadow:"var(--shadow-md)",textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:10}}>🔒</div>
+        <div style={{fontSize:16,fontWeight:800,marginBottom:8}}>Conta sem acesso</div>
+        <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.6,marginBottom:18}}>Essa conta Google não tem permissão para usar o ResponDM Assinaturas. Use uma conta autorizada.</div>
+        <Btn onClick={()=>setDenied(false)}>Voltar ao login</Btn>
+      </div>
+    </div>
+  );
   if(!user)return <LoginScreen onLogin={()=>{}}/>;
   if(cloudLoading&&subs.length===0)return(<div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:"var(--text3)",fontSize:14}}><div style={{fontSize:22,fontWeight:800}}>respon<span style={{color:"var(--purple)"}}>DM</span></div><div>Sincronizando com a nuvem…</div></div>);
 
