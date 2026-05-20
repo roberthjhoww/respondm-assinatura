@@ -3215,13 +3215,17 @@ function App(){
   // Observa o estado de login do Firebase
   useEffect(()=>{
     const unsub=fbAuth.onAuthStateChanged(u=>{
+      setAuthReady(true);
       if(u&&u.email&&!AUTHORIZED_EMAILS.includes(u.email.toLowerCase())){
-        // logou com uma conta não autorizada — desloga e avisa
-        setDenied(true);setUser(null);setAuthReady(true);
+        // logou com uma conta não autorizada — avisa e desloga
+        setDenied(true);setUser(null);
         fbAuth.signOut();
         return;
       }
-      setDenied(false);setUser(u);setAuthReady(true);
+      // logout disparado pela própria trava: NÃO limpa o aviso de "denied"
+      if(!u){setUser(null);return;}
+      // login válido
+      setDenied(false);setUser(u);
     });
     return unsub;
   },[]);
