@@ -142,8 +142,15 @@ const GROUP_TYPES=["Agência","Afiliado","Criador","Pequeno Negócio","Outro"];
    Variáveis: {{nome}} {{valor}} {{plano}} {{vencimento}} {{dias_atraso}} */
 const DEFAULT_MSG_TPL={
   vencendo:"Oi {{nome}}! Passando pra lembrar que sua assinatura {{plano}} do ResponDM ({{valor}}) vence em {{vencimento}}. Qualquer dúvida é só chamar. 💜",
-  atrasado:"Oi {{nome}}, tudo bem? Sua assinatura {{plano}} do ResponDM venceu há {{dias_atraso}} e ainda consta em aberto ({{valor}}). Pra não perder o acesso, é só renovar. Qualquer coisa estou por aqui. 💜"
+  atrasado:"Oi {{nome}}, tudo bem? Sua assinatura {{plano}} do ResponDM venceu há {{dias_atraso}} e ainda consta em aberto ({{valor}}). Pra não perder o acesso, é só renovar. Qualquer coisa estou por aqui. 💜",
+  // recuperação — uma mensagem por fase de churn
+  rec_quente:"Oi {{nome}}! Vi que sua assinatura do ResponDM venceu há {{dias_fora}} e suas automações estão pausadas. Foi só esquecimento? É rapidinho reativar ({{valor}}) e suas automações voltam na hora. 💜",
+  rec_morno:"Oi {{nome}}, tudo bem? Senti sua falta por aqui no ResponDM. 🙏 Sua conta está sem as automações há {{dias_fora}}. Aconteceu alguma coisa? Se tiver algo que eu possa ajudar pra você voltar, me conta — quero te ajudar a ter resultado.",
+  rec_frio:"Oi {{nome}}! Faz {{dias_fora}} que você não usa o ResponDM e eu queria muito te ver de volta. As automações continuam aqui prontas pra trabalhar por você. Posso te ajudar a configurar de novo? Me responde aqui. 💜",
+  rec_perdido:"Oi {{nome}}! O ResponDM evoluiu bastante desde que você saiu — novas automações, mais estabilidade. Se quiser dar mais uma chance, estou por aqui pra te ajudar a voltar do jeito certo. 💜"
 };
+// Motivos de saída — registrados em 1 clique para entender o churn real
+const MOTIVOS_CHURN=["Esqueceu de pagar","Achou caro","Não usou / não viu valor","Trocou de ferramenta","Fechou o negócio","Problema técnico","Outro"];
 
 /* utils */
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
@@ -199,12 +206,15 @@ function buildCobrancaMsg(tpl,sub){
   const nd=getNextDue(sub);
   const d=daysUntil(nd);
   const atraso=d!==null&&d<0?(Math.abs(d)===1?"1 dia":Math.abs(d)+" dias"):"";
+  const dFora=daysCancelled(sub);
+  const fora=dFora!==null?(dFora===0?"hoje":dFora===1?"1 dia":dFora+" dias"):"alguns dias";
   return(tpl||"")
     .replace(/\{\{nome\}\}/g,"@"+sub.username)
     .replace(/\{\{valor\}\}/g,fmtBRL(sub.plan_value))
     .replace(/\{\{plano\}\}/g,sub.plan_name||"")
     .replace(/\{\{vencimento\}\}/g,nd?fmtDate(nd):"—")
-    .replace(/\{\{dias_atraso\}\}/g,atraso||"alguns dias");
+    .replace(/\{\{dias_atraso\}\}/g,atraso||"alguns dias")
+    .replace(/\{\{dias_fora\}\}/g,fora);
 }
 function waLink(phone,msg){
   const p=normalizePhone(phone);
@@ -276,6 +286,20 @@ function daysCancelled(sub){
   const now=new Date();
   if(now<cancelAt)return null;
   return Math.floor((now-cancelAt)/86400000);
+}
+
+/* Fase de recuperação a partir dos dias fora do PRO.
+   Quente 1-7d · Morno 8-30d · Frio 31-60d · Perdido 60+ */
+const CHURN_PHASES=[
+  {id:"quente", label:"Quente",  emoji:"🟠", max:7,        tpl:"rec_quente",  color:"var(--orange)",  bg:"var(--orange-bg)",  nota:"acabou de sair — provável esquecimento, recupere rápido"},
+  {id:"morno",  label:"Morno",   emoji:"🟡", max:30,       tpl:"rec_morno",   color:"var(--amber)",   bg:"var(--amber-bg)",   nota:"esfriando — entenda o motivo e mostre valor"},
+  {id:"frio",   label:"Frio",    emoji:"🔴", max:60,       tpl:"rec_frio",    color:"var(--red)",     bg:"var(--red-bg)",     nota:"última janela boa — vale uma condição especial"},
+  {id:"perdido",label:"Perdido", emoji:"⚫", max:Infinity, tpl:"rec_perdido", color:"var(--text3)",   bg:"var(--surface2)",   nota:"baixa prioridade — reengajamento esporádico"}
+];
+function getChurnPhase(sub){
+  const d=daysCancelled(sub);
+  if(d===null)return null; // ainda não saiu do PRO
+  return CHURN_PHASES.find(p=>d<=p.max)||CHURN_PHASES[CHURN_PHASES.length-1];
 }
 function CancelTag({sub}){
   const days=daysCancelled(sub);
@@ -898,6 +922,195 @@ function TabPendencias({subs,msgTpl,onAddPay,onShowToast,onMarkReminded,onGoTab,
       <div style={{fontSize:11,color:"var(--text3)",textAlign:"center",paddingTop:6}}>
         Quer ver liquidações do Stripe esperadas? <button onClick={()=>onGoTab("financeiro")} style={{border:"none",background:"none",color:"var(--purple)",fontWeight:700,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit",fontSize:11}}>Abrir Financeiro →</button>
       </div>
+    </div>
+  );
+}
+
+/* ── Modal: registrar motivo de saída (1 clique) ── */
+function ModalMotivo({sub,onSave,onClose}){
+  const [motivo,setMotivo]=useState(sub.cancel_reason||"");
+  const [obs,setObs]=useState(sub.cancel_note||"");
+  return(
+    <ModalWrap onClose={onClose}>
+      <MTitle>Por que @{sub.username} saiu?</MTitle>
+      <div style={{fontSize:12,color:"var(--text2)",marginTop:-12,marginBottom:16}}>Registrar o motivo ajuda a entender o churn real e agir na causa.</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+        {MOTIVOS_CHURN.map(m=>(
+          <button key={m} onClick={()=>setMotivo(m)} style={{border:"1.5px solid "+(motivo===m?"var(--purple)":"var(--border)"),background:motivo===m?"var(--purple)":"var(--surface)",color:motivo===m?"#fff":"var(--text2)",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{m}</button>
+        ))}
+      </div>
+      <FInput label="Observação (opcional)" value={obs} onChange={e=>setObs(e.target.value)} placeholder="ex: disse que vai voltar mês que vem"/>
+      <div style={{display:"flex",gap:8,marginTop:16}}>
+        <Btn onClick={()=>onSave({cancel_reason:motivo,cancel_note:obs})}>Salvar</Btn>
+        <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
+      </div>
+    </ModalWrap>
+  );
+}
+
+/* ── Modal: editar mensagens de recuperação (4 fases) ── */
+function ModalMsgRecuperacao({msgTpl,subs,onSave,onClose}){
+  const [vals,setVals]=useState({rec_quente:msgTpl.rec_quente,rec_morno:msgTpl.rec_morno,rec_frio:msgTpl.rec_frio,rec_perdido:msgTpl.rec_perdido});
+  const exemplo=subs[0]||{username:"exemplo",plan_name:"PRO",plan_value:"39.90",payments:[]};
+  const taArea={padding:"10px 12px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,width:"100%",minHeight:74,resize:"vertical",fontFamily:"inherit"};
+  return(
+    <ModalWrap onClose={onClose} wide>
+      <MTitle>Mensagens de recuperação</MTitle>
+      <div style={{fontSize:12,color:"var(--text2)",marginTop:-12,marginBottom:14,lineHeight:1.6}}>
+        Variáveis: <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{nome}}"}</code> <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{valor}}"}</code> <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{plano}}"}</code> <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{dias_fora}}"}</code>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {CHURN_PHASES.map(ph=>(
+          <div key={ph.id}>
+            <div style={{fontSize:11,fontWeight:700,color:ph.color,textTransform:"uppercase",letterSpacing:".05em",marginBottom:6}}>{ph.emoji} {ph.label} {ph.id==="quente"?"(1-7 dias)":ph.id==="morno"?"(8-30 dias)":ph.id==="frio"?"(31-60 dias)":"(60+ dias)"}</div>
+            <textarea value={vals[ph.tpl]} onChange={e=>setVals(v=>({...v,[ph.tpl]:e.target.value}))} style={taArea}/>
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:5,background:"var(--surface2)",borderRadius:8,padding:"7px 10px"}}><strong>Prévia:</strong> {buildCobrancaMsg(vals[ph.tpl],exemplo)}</div>
+          </div>
+        ))}
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={()=>onSave(vals)}>Salvar</Btn>
+          <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
+          <Btn variant="ghost" style={{marginLeft:"auto"}} onClick={()=>setVals({rec_quente:DEFAULT_MSG_TPL.rec_quente,rec_morno:DEFAULT_MSG_TPL.rec_morno,rec_frio:DEFAULT_MSG_TPL.rec_frio,rec_perdido:DEFAULT_MSG_TPL.rec_perdido})}>Restaurar padrão</Btn>
+        </div>
+      </div>
+    </ModalWrap>
+  );
+}
+
+/* ── Tab Recuperação ── */
+function TabRecuperacao({subs,msgTpl,onAddPay,onShowToast,onMarkReminded,onSaveMotivo,onEditMsg}){
+  const [showPerdidos,setShowPerdidos]=useState(false);
+  // assinantes que saíram do PRO, com a fase calculada
+  const churned=subs.map(s=>({s,phase:getChurnPhase(s),dias:daysCancelled(s)})).filter(x=>x.phase);
+  // painel
+  const mrrRecuperavel=churned.filter(x=>x.phase.id!=="perdido").reduce((a,x)=>a+parseFloat(x.s.plan_value||0),0);
+  const recuperados=subs.filter(s=>(s.payments||[]).some(p=>p.is_reactivation)).length;
+  // motivos registrados
+  const motivosMap={};
+  churned.forEach(x=>{if(x.s.cancel_reason){motivosMap[x.s.cancel_reason]=(motivosMap[x.s.cancel_reason]||0)+1;}});
+  const motivosTotal=Object.values(motivosMap).reduce((a,b)=>a+b,0);
+  const semMotivo=churned.filter(x=>!x.s.cancel_reason).length;
+
+  function Linha({x}){
+    const s=x.s;const ph=x.phase;
+    const ltv=(s.payments||[]).reduce((a,p)=>a+pmtNet(p),0);
+    const reminded=s.last_reminded_at?daysUntil(s.last_reminded_at):null;
+    return(
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:13,boxShadow:"var(--shadow-sm)",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:190}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:700}}>@{s.username}</span>
+            <PlanBadge plan={s.plan_name}/>
+            <span style={{fontSize:10,fontWeight:700,color:ph.color,background:ph.bg,padding:"2px 8px",borderRadius:10,border:"1px solid "+ph.color}}>{ph.emoji} {x.dias===0?"saiu hoje":x.dias+"d fora"}</span>
+            {reminded!==null&&reminded>=-3&&<span style={{fontSize:10,fontWeight:700,color:"var(--blue)",background:"var(--blue-bg)",padding:"2px 7px",borderRadius:8}}>🔔 {reminded===0?"contatado hoje":Math.abs(reminded)+"d"}</span>}
+          </div>
+          <div style={{fontSize:11,color:"var(--text2)",marginTop:4}}>
+            {fmtBRL(s.plan_value)}/mês · já gerou <span style={{color:"var(--green)",fontWeight:600}}>{fmtBRL(ltv)}</span> de receita
+            {s.cancel_reason
+              ? <span style={{color:"var(--text3)"}}> · motivo: <strong>{s.cancel_reason}</strong></span>
+              : <span style={{color:"var(--amber)"}}> · motivo não registrado</span>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+          <RecBtns sub={s} phase={ph} msgTpl={msgTpl} onShowToast={onShowToast} onMarkReminded={onMarkReminded}/>
+          <Btn size="sm" variant="ghost" style={{border:"1.5px solid var(--border)"}} onClick={()=>onSaveMotivo(s)} title="Registrar motivo de saída">✏ Motivo</Btn>
+          <Btn size="sm" onClick={()=>onAddPay(s)}>↻ Reativar</Btn>
+        </div>
+      </div>
+    );
+  }
+  function Secao({phase}){
+    const itens=churned.filter(x=>x.phase.id===phase.id).sort((a,b)=>a.dias-b.dias);
+    if(!itens.length)return null;
+    return(
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:700,color:phase.color,letterSpacing:".06em",textTransform:"uppercase"}}>{phase.emoji} {phase.label} · {itens.length}</span>
+          <span style={{fontSize:11,color:phase.color,opacity:.7}}>{phase.nota}</span>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>{itens.map((x,i)=><Linha key={x.s.username+i} x={x}/>)}</div>
+      </div>
+    );
+  }
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:20}}>
+      {/* Painel */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+        {[
+          {label:"Fora do PRO",val:churned.length,color:"var(--text)",sub:"total que saiu"},
+          {label:"MRR recuperável",val:fmtBRL(mrrRecuperavel),color:"var(--amber)",sub:"exclui os 'perdidos'"},
+          {label:"Já recuperados",val:recuperados,color:"var(--green)",sub:"voltaram via reativação"},
+          {label:"Sem motivo",val:semMotivo,color:semMotivo>0?"var(--orange)":"var(--green)",sub:"registre p/ entender o churn"},
+        ].map(k=>(
+          <Card key={k.label} style={{padding:"14px 16px"}}>
+            <div style={{fontSize:20,fontWeight:800,color:k.color,lineHeight:1}}>{k.val}</div>
+            <div style={{fontSize:10,fontWeight:600,color:"var(--text2)",marginTop:7,letterSpacing:".04em",textTransform:"uppercase"}}>{k.label}</div>
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:3}}>{k.sub}</div>
+          </Card>
+        ))}
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:13,color:"var(--text2)",fontWeight:600}}>{churned.length>0?`${churned.length} assinante${churned.length>1?"s":""} para recuperar`:"Ninguém fora do PRO 🎉"}</div>
+        <Btn variant="ghost" size="sm" style={{border:"1.5px solid var(--border)"}} onClick={onEditMsg}>✏ Editar mensagens de recuperação</Btn>
+      </div>
+
+      {churned.length===0&&(
+        <div style={{textAlign:"center",padding:"50px 0",color:"var(--text3)"}}>
+          <div style={{fontSize:40,marginBottom:10}}>🎉</div>
+          <div style={{fontSize:15,fontWeight:700,color:"var(--green)"}}>Nenhum assinante fora do PRO!</div>
+          <div style={{fontSize:13,marginTop:4}}>Toda a base ativa está em dia.</div>
+        </div>
+      )}
+
+      <Secao phase={CHURN_PHASES[0]}/>
+      <Secao phase={CHURN_PHASES[1]}/>
+      <Secao phase={CHURN_PHASES[2]}/>
+      {/* Perdidos: escondidos por padrão (baixa prioridade) */}
+      {churned.some(x=>x.phase.id==="perdido")&&(
+        showPerdidos
+          ? <Secao phase={CHURN_PHASES[3]}/>
+          : <button onClick={()=>setShowPerdidos(true)} style={{border:"1.5px dashed var(--border2)",background:"var(--surface2)",color:"var(--text3)",borderRadius:11,padding:"11px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Mostrar {churned.filter(x=>x.phase.id==="perdido").length} assinante(s) "perdido(s)" (60+ dias)</button>
+      )}
+
+      {/* Motivos do churn */}
+      {motivosTotal>0&&(
+        <Card>
+          <SLabel>Por que estão saindo</SLabel>
+          {Object.entries(motivosMap).sort((a,b)=>b[1]-a[1]).map(([m,c])=>{
+            const C=["var(--purple)","var(--orange)","var(--amber)","var(--red)","var(--blue)","var(--green)"];
+            const i=Object.keys(motivosMap).indexOf(m);
+            return(
+              <div key={m} style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
+                <div style={{fontSize:12,color:"var(--text2)",minWidth:160}}>{m}</div>
+                <Bar pct={c/motivosTotal*100} color={C[i%C.length]}/>
+                <div style={{fontSize:12,fontWeight:600,color:"var(--text2)",minWidth:60,textAlign:"right"}}>{c} ({Math.round(c/motivosTotal*100)}%)</div>
+              </div>
+            );
+          })}
+          <div style={{fontSize:11,color:"var(--text3)",marginTop:6}}>Baseado em {motivosTotal} motivo(s) registrado(s){semMotivo>0?` · ${semMotivo} ainda sem registro`:""}.</div>
+        </Card>
+      )}
+    </div>
+  );
+}
+/* Botões de recuperação — mensagem específica da fase */
+function RecBtns({sub,phase,msgTpl,onShowToast,onMarkReminded}){
+  const msg=buildCobrancaMsg(msgTpl[phase.tpl]||"",sub);
+  const wa=waLink(sub.whatsapp,msg);
+  function copyMsg(){
+    navigator.clipboard.writeText(msg).then(
+      ()=>{onShowToast&&onShowToast("✓ Mensagem de recuperação copiada");onMarkReminded&&onMarkReminded(sub);},
+      ()=>onShowToast&&onShowToast("Não consegui copiar","error")
+    );
+  }
+  return(
+    <div style={{display:"flex",gap:5,alignItems:"center"}}>
+      <Btn size="sm" variant="secondary" onClick={copyMsg} title="Copiar mensagem de recuperação">📋 Copiar</Btn>
+      {wa
+        ? <a href={wa} target="_blank" rel="noopener" onClick={()=>onMarkReminded&&onMarkReminded(sub)} style={{textDecoration:"none"}}><Btn size="sm" variant="success" style={{pointerEvents:"none"}}>💬 Zap</Btn></a>
+        : <Btn size="sm" variant="ghost" style={{opacity:.5}} onClick={()=>onShowToast&&onShowToast("Cadastre o WhatsApp deste assinante","error")}>💬 Zap</Btn>}
+      <a href={instagramDMLink(sub.username)} target="_blank" rel="noopener" style={{textDecoration:"none"}}><Btn size="sm" variant="ghost" style={{pointerEvents:"none",border:"1.5px solid var(--border)"}}>📷 DM</Btn></a>
     </div>
   );
 }
@@ -3398,9 +3611,15 @@ function App(){
     if(sub.last_reminded_at===today)return;
     update(subs.map(s=>s.username===sub.username?{...s,last_reminded_at:today}:s));
   }
+  // salva o motivo de saída registrado na aba Recuperação
+  function saveMotivo(username,info){
+    update(subs.map(s=>s.username===username?{...s,cancel_reason:info.cancel_reason,cancel_note:info.cancel_note}:s));
+    setModal(null);showToast("✓ Motivo registrado");
+  }
 
   const upcoming=subs.filter(s=>{const nd=getNextDue(s);if(!nd)return false;const d=daysUntil(nd);return["ATIVO","AGUARDANDO PAGAMENTO"].includes(computeStatus(s))&&d!==null&&d>=-3&&d<=7;});
-  const tabs=[{id:"pendencias",label:"📥 Pendências"},{id:"dashboard",label:"Dashboard"},{id:"assinantes",label:`Assinantes (${subs.length})`},{id:"vencimentos",label:"Vencimentos"+(upcoming.length?` ⚠ ${upcoming.length}`:"")},{id:"meses",label:"Pagamentos por mês"},{id:"comparativo",label:"Comparativo"},{id:"grupos",label:`Grupos (${groups.length})`},{id:"metas",label:"🎯 Metas"},{id:"financeiro",label:"💰 Financeiro"}];
+  const churnCount=subs.filter(s=>getChurnPhase(s)).length;
+  const tabs=[{id:"pendencias",label:"📥 Pendências"},{id:"recuperacao",label:"♻️ Recuperação"+(churnCount?` (${churnCount})`:"")},{id:"dashboard",label:"Dashboard"},{id:"assinantes",label:`Assinantes (${subs.length})`},{id:"vencimentos",label:"Vencimentos"+(upcoming.length?` ⚠ ${upcoming.length}`:"")},{id:"meses",label:"Pagamentos por mês"},{id:"comparativo",label:"Comparativo"},{id:"grupos",label:`Grupos (${groups.length})`},{id:"metas",label:"🎯 Metas"},{id:"financeiro",label:"💰 Financeiro"}];
 
   // ── Hotkeys globais ──
   useEffect(()=>{
@@ -3421,6 +3640,7 @@ function App(){
       else if(k==="v"){e.preventDefault();setTab("vencimentos");}
       else if(k==="m"){e.preventDefault();setTab("meses");}
       else if(k==="f"){e.preventDefault();setTab("financeiro");}
+      else if(k==="r"){e.preventDefault();setTab("recuperacao");}
       else if(k==="?"){e.preventDefault();setShowShortcuts(s=>!s);}
     }
     window.addEventListener("keydown",onKey);
@@ -3458,7 +3678,7 @@ function App(){
               <button onClick={()=>setShowShortcuts(false)} style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:18,fontFamily:"inherit"}}>✕</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:7}}>
-              {[["N","Novo assinante"],["P","Registrar pagamento"],["/","Buscar assinante"],["I","Pendências"],["D","Dashboard"],["A","Assinantes"],["V","Vencimentos"],["M","Pagamentos por mês"],["F","Financeiro"],["Esc","Fechar janela"],["?","Mostrar esta tabela"]].map(([k,d])=>(
+              {[["N","Novo assinante"],["P","Registrar pagamento"],["/","Buscar assinante"],["I","Pendências"],["R","Recuperação"],["D","Dashboard"],["A","Assinantes"],["V","Vencimentos"],["M","Pagamentos por mês"],["F","Financeiro"],["Esc","Fechar janela"],["?","Mostrar esta tabela"]].map(([k,d])=>(
                 <div key={k} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:13}}>
                   <span style={{color:"var(--text2)"}}>{d}</span>
                   <kbd style={{background:"var(--surface2)",border:"1.5px solid var(--border2)",borderRadius:6,padding:"2px 9px",fontSize:12,fontWeight:700,color:"var(--text)",fontFamily:"inherit",minWidth:30,textAlign:"center"}}>{k}</kbd>
@@ -3506,6 +3726,7 @@ function App(){
       </div>
 
       {tab==="pendencias"&&<TabPendencias subs={subs} msgTpl={msgTpl} onAddPay={s=>setModal({type:"pay",data:s})} onShowToast={showToast} onMarkReminded={markReminded} onGoTab={setTab} onFillDueDay={fillAllDueDay} onEditMsg={()=>setModal({type:"mensagem"})}/>}
+      {tab==="recuperacao"&&<TabRecuperacao subs={subs} msgTpl={msgTpl} onAddPay={s=>setModal({type:"pay",data:s})} onShowToast={showToast} onMarkReminded={markReminded} onSaveMotivo={s=>setModal({type:"motivo",data:s})} onEditMsg={()=>setModal({type:"msgrec"})}/>}
       {tab==="dashboard"&&<TabDashboard subs={subs} onFillDueDay={fillAllDueDay}/>}
       {tab==="assinantes"&&<TabAssinantes subs={subs} groups={groups} onEdit={s=>setModal({type:"sub",data:s})} onAddPay={s=>setModal({type:"pay",data:s})} onViewPay={s=>setModal({type:"paylist",data:s})} onTimeline={s=>setModal({type:"timeline",data:s})} defaultSearch={globalSearch}/>}
       {tab==="vencimentos"&&<TabVencimentos subs={subs} onAddPay={s=>setModal({type:"pay",data:s})} msgTpl={msgTpl} onShowToast={showToast} onMarkReminded={markReminded}/>}
@@ -3523,6 +3744,8 @@ function App(){
         {modal.type==="paylist"&&<ModalWrap onClose={()=>setModal(null)} wide><ModalPayList sub={modal.data} onDeletePay={idx=>deletePayFromSorted(modal.data,idx)} onClose={()=>setModal(null)}/></ModalWrap>}
         {modal.type==="editpay"&&<ModalEditPagamento row={modal.data} subs={subs} onSave={edited=>handleMesEditSave(modal.data,edited)} onClose={()=>setModal(null)}/> }
         {modal.type==="mensagem"&&<ModalMensagem msgTpl={msgTpl} subs={subs} onSave={t=>{saveMsgTpl(t);setModal(null);showToast("✓ Mensagens salvas");}} onClose={()=>setModal(null)}/>}
+        {modal.type==="msgrec"&&<ModalMsgRecuperacao msgTpl={msgTpl} subs={subs} onSave={t=>{saveMsgTpl({...msgTpl,...t});setModal(null);showToast("✓ Mensagens de recuperação salvas");}} onClose={()=>setModal(null)}/>}
+        {modal.type==="motivo"&&<ModalMotivo sub={modal.data} onSave={info=>saveMotivo(modal.data.username,info)} onClose={()=>setModal(null)}/>}
           {modal.type==="timeline"&&<ModalTimeline sub={modal.data} onClose={()=>setModal(null)}/>}
           {modal.type==="subinfo"&&<ModalSubInfo sub={modal.data} onClose={()=>setModal(null)} onEdit={s=>setModal({type:"sub",data:s})} onAddPay={s=>setModal({type:"pay",data:s})} onViewPay={s=>setModal({type:"paylist",data:s})}/>}
       </>)}
