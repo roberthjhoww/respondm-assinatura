@@ -4,30 +4,10 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>responDM · Assinaturas</title>
-<!-- Favicon: ícone "DM" no roxo do ResponDM, embutido (sem arquivo externo) -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237447E1'/%3E%3Ctext x='32' y='44' font-family='Arial,Helvetica,sans-serif' font-size='30' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EDM%3C/text%3E%3C/svg%3E"/>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-<!-- Firebase SDK (compat: expõe window.firebase, funciona com o Babel inline) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script>
-/* ── Configuração do Firebase (chaves públicas — protegido por regras + login) ── */
-var firebaseConfig={
-  apiKey:"AIzaSyA_OCk1eRxhGDR-0B64m9zrgXsp-dGEYZI",
-  authDomain:"controle-financeiro---respondm.firebaseapp.com",
-  projectId:"controle-financeiro---respondm",
-  storageBucket:"controle-financeiro---respondm.firebasestorage.app",
-  messagingSenderId:"316826841028",
-  appId:"1:316826841028:web:caf4a43b9acdda30f87e91"
-};
-firebase.initializeApp(firebaseConfig);
-window.fbAuth=firebase.auth();
-window.fbDB=firebase.firestore();
-</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;font-size:14px;line-height:1.5;min-height:100vh;
@@ -66,66 +46,6 @@ const STORAGE_KEY="respondm_v6";
 const GROUPS_KEY="respondm_groups_v1";
 const METAS_KEY="respondm_metas_v1";
 const FIN_KEY="respondm_fin_v1";
-const MSG_KEY="respondm_msg_v1"; // template de cobrança editável
-// Emails autorizados a usar o app (a segurança real está nas regras do Firestore)
-const AUTHORIZED_EMAILS=["roberthjhow@gmail.com","pablonatan.d.r.s@gmail.com"];
-
-/* ─────────────────────────────────────────────
-   Camada de persistência — Firebase Firestore
-   Estrutura no Firestore:
-     - coleção "assinantes": 1 documento por @ (id = username)
-     - documento "config/grupos", "config/metas", "config/financeiro": 1 cada
-   localStorage continua como cache local de leitura rápida.
-   ───────────────────────────────────────────── */
-const fbDB=window.fbDB, fbAuth=window.fbAuth;
-
-// Firestore rejeita valores `undefined` — remove recursivamente antes de salvar
-function stripUndefined(v){
-  if(Array.isArray(v))return v.map(stripUndefined);
-  if(v&&typeof v==="object"){
-    const o={};
-    for(const k in v){if(v[k]!==undefined)o[k]=stripUndefined(v[k]);}
-    return o;
-  }
-  return v;
-}
-
-// Salva a lista inteira de assinantes (um doc por assinante, em lote)
-async function fbSaveSubs(subs){
-  if(!fbDB)return;
-  const col=fbDB.collection("assinantes");
-  // Firestore limita 500 ops por batch
-  const chunks=[];for(let i=0;i<subs.length;i+=450)chunks.push(subs.slice(i,i+450));
-  for(const chunk of chunks){
-    const batch=fbDB.batch();
-    chunk.forEach(s=>batch.set(col.doc(s.username),stripUndefined(s)));
-    await batch.commit();
-  }
-}
-// Salva/atualiza um único assinante (rápido — uso no dia a dia)
-async function fbSaveSub(sub){
-  if(!fbDB)return;
-  await fbDB.collection("assinantes").doc(sub.username).set(stripUndefined(sub));
-}
-async function fbDeleteSub(username){
-  if(!fbDB)return;
-  await fbDB.collection("assinantes").doc(username).delete();
-}
-async function fbLoadSubs(){
-  if(!fbDB)return null;
-  const snap=await fbDB.collection("assinantes").get();
-  return snap.docs.map(d=>d.data());
-}
-// Documentos de config (grupos / metas / financeiro / mensagem)
-async function fbSaveDoc(name,data){
-  if(!fbDB)return;
-  await fbDB.collection("config").doc(name).set({data:stripUndefined(data)});
-}
-async function fbLoadDoc(name){
-  if(!fbDB)return null;
-  const d=await fbDB.collection("config").doc(name).get();
-  return d.exists?d.data().data:null;
-}
 const PLANS=[{name:"PRO",value:39.90},{name:"GROW",value:69.90},{name:"PLUS",value:99.90},{name:"Personalizado",value:0}];
 const METHODS=[{id:"PIX",label:"PIX",fee:0.0099,currency:"BRL"},{id:"CARTÃO BRL",label:"Cartão BRL",fee:0.03985,currency:"BRL"},{id:"CARTÃO USD",label:"Cartão USD",fee:0.05985,currency:"USD"}];
 const STRIPE_FIXED_FEE=0.39; // R$0,39 por transação (Stripe BRL e USD)
@@ -137,13 +57,6 @@ function calcFee(a,id){
 }
 const MONTHS_PT=["Jan.","Fev.","Mar.","Abr.","Mai.","Jun.","Jul.","Ago.","Set.","Out.","Nov.","Dez."];
 const GROUP_TYPES=["Agência","Afiliado","Criador","Pequeno Negócio","Outro"];
-
-/* Mensagens de cobrança — editáveis pelo usuário, salvas na nuvem.
-   Variáveis: {{nome}} {{valor}} {{plano}} {{vencimento}} {{dias_atraso}} */
-const DEFAULT_MSG_TPL={
-  vencendo:"Oi {{nome}}! Passando pra lembrar que sua assinatura {{plano}} do ResponDM ({{valor}}) vence em {{vencimento}}. Qualquer dúvida é só chamar. 💜",
-  atrasado:"Oi {{nome}}, tudo bem? Sua assinatura {{plano}} do ResponDM venceu há {{dias_atraso}} e ainda consta em aberto ({{valor}}). Pra não perder o acesso, é só renovar. Qualquer coisa estou por aqui. 💜"
-};
 
 /* utils */
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
@@ -185,34 +98,6 @@ function pmtDiscounted(p){return Math.max(0,pmtBRL(p)-pmtDiscount(p));}
 function pmtFee(p){return calcFee(pmtDiscounted(p),p.method);}
 function pmtNet(p){return calcNet(pmtDiscounted(p),p.method);}
 
-/* ── Cobrança / WhatsApp ── */
-// só dígitos; assume Brasil (55) se faltar código do país
-function normalizePhone(raw){
-  if(!raw)return"";
-  let d=String(raw).replace(/\D/g,"");
-  if(!d)return"";
-  if(d.length<=11&&!d.startsWith("55"))d="55"+d;
-  return d;
-}
-// monta a mensagem substituindo as variáveis pelos dados do assinante
-function buildCobrancaMsg(tpl,sub){
-  const nd=getNextDue(sub);
-  const d=daysUntil(nd);
-  const atraso=d!==null&&d<0?(Math.abs(d)===1?"1 dia":Math.abs(d)+" dias"):"";
-  return(tpl||"")
-    .replace(/\{\{nome\}\}/g,"@"+sub.username)
-    .replace(/\{\{valor\}\}/g,fmtBRL(sub.plan_value))
-    .replace(/\{\{plano\}\}/g,sub.plan_name||"")
-    .replace(/\{\{vencimento\}\}/g,nd?fmtDate(nd):"—")
-    .replace(/\{\{dias_atraso\}\}/g,atraso||"alguns dias");
-}
-function waLink(phone,msg){
-  const p=normalizePhone(phone);
-  if(!p)return null;
-  return`https://wa.me/${p}?text=${encodeURIComponent(msg)}`;
-}
-function instagramDMLink(username){return`https://ig.me/m/${username}`;}
-
 function getNextDue(sub){
   const pmts=sub.payments||[];if(!pmts.length)return null;
   const last=pmts.reduce((a,b)=>a.date>b.date?a:b);
@@ -225,25 +110,17 @@ function getNextDue(sub){
   }
   return addDays(lastDate,30).toISOString().split("T")[0];
 }
-/* Data/hora exata em que a conta perde o PRO.
-   Regra real: a fila roda às 9h. Vencimento dia X → conta sai do PRO
-   no dia X+3 às 9h (fica no PRO até 8:59 desse dia). 3 dias corridos. */
-function getProExpiry(sub){
-  const nd=getNextDue(sub);if(!nd)return null;
-  const[dy,dm,dd]=nd.split("-").map(Number);
-  const cb=addDays(new Date(dy,dm-1,dd),3);
-  return new Date(cb.getFullYear(),cb.getMonth(),cb.getDate(),9,0,0);
-}
 function computeStatus(sub){
   const pmts=sub.payments||[];if(!pmts.length)return"SEM PAG.";
   const nd=getNextDue(sub);if(!nd)return"SEM PAG.";
   const[dy,dm,dd]=nd.split("-").map(Number);
-  const dueAt9=new Date(dy,dm-1,dd,9,0,0);
-  const cancelAt9=getProExpiry(sub);
+  const dueAt12=new Date(dy,dm-1,dd,12,0,0);
+  const cb=addDays(new Date(dy,dm-1,dd),3);
+  const cancelAt12=new Date(cb.getFullYear(),cb.getMonth(),cb.getDate(),12,0,0);
   const now=new Date();
-  if(now<dueAt9)return"ATIVO";
-  if(now<cancelAt9)return"AGUARDANDO PAGAMENTO";
-  const daysPast=Math.floor((now-cancelAt9)/86400000);
+  if(now<dueAt12)return"ATIVO";
+  if(now<cancelAt12)return"AGUARDANDO PAGAMENTO";
+  const daysPast=Math.floor((now-cancelAt12)/86400000);
   if(daysPast<=7)return"CANCELADO 7 DIAS";
   if(daysPast<=30)return"CANCELADO 30 DIAS";
   if(daysPast<=60)return"CANCELADO 60 DIAS";
@@ -422,8 +299,6 @@ function ModalSub({data,subs,onSave,onDelete,onClose,onGoToUser,onPayUser}){
         <FSelect label="Moeda" value={form.currency||"BRL"} onChange={e=>set("currency",e.target.value)}><option>BRL</option><option>USD</option></FSelect>
         <FInput label="Dia de vencimento (1–31)" type="number" min="1" max="31" value={form.due_day||""} onChange={e=>set("due_day",e.target.value)} placeholder="ex: 15"/>
       </div>
-      <FInput label="WhatsApp (opcional)" value={form.whatsapp||""} onChange={e=>set("whatsapp",e.target.value)} placeholder="ex: 11 91234-5678"/>
-      {form.whatsapp&&normalizePhone(form.whatsapp)&&<div style={{fontSize:11,color:"var(--text3)",marginTop:-8}}>Será usado como: +{normalizePhone(form.whatsapp)} · habilita o botão de cobrança no WhatsApp.</div>}
       <FInput label="Observações (opcional)" value={form.notes||""} onChange={e=>set("notes",e.target.value)}/>
       <FInput label="Motivo de cancelamento (opcional)" value={form.cancel_reason||""} onChange={e=>set("cancel_reason",e.target.value)} placeholder="ex: achou caro, não usou..."/>
       {err&&(
@@ -452,30 +327,17 @@ function ModalSub({data,subs,onSave,onDelete,onClose,onGoToUser,onPayUser}){
   );
 }
 
-/* Sugere a data do pagamento a partir do due_day:
-   pega o dia de vencimento mais recente que já passou (ou hoje). */
-function suggestPayDate(sub){
-  if(!sub.due_day)return todayStr();
-  const day=parseInt(sub.due_day);
-  if(!day||day<1||day>31)return todayStr();
-  const t=today0();
-  let c=new Date(t.getFullYear(),t.getMonth(),day);
-  if(c>t)c=new Date(t.getFullYear(),t.getMonth()-1,day); // ainda não chegou esse dia no mês → mês passado
-  return c.toISOString().split("T")[0];
-}
 /* Modal Pay */
 function ModalPay({sub,onSave,onClose,skipLabel}){
   const lastPmt=(sub.payments||[]).length?[...(sub.payments||[])].sort((a,b)=>b.date.localeCompare(a.date))[0]:null;
   const defaultMethod=lastPmt?.method||(sub.currency==="USD"?"CARTÃO USD":"PIX");
   const [method,setMethod]=useState(defaultMethod);
-  const [date,setDate]=useState(()=>suggestPayDate(sub));
+  const [date,setDate]=useState(todayStr());
   const [valueBRL,setValueBRL]=useState(sub.plan_value||"39.90");
   const [valueUSD,setValueUSD]=useState("");const [exchangeRate,setExchangeRate]=useState("5.80");
   const [discountOn,setDiscountOn]=useState(false);const [discountType,setDiscountType]=useState("fixed");const [discountVal,setDiscountVal]=useState("");
   const [intlBRL,setIntlBRL]=useState(false);
   const m=getMethod(method);const isUSD=m.currency==="USD";
-  // Aviso de pagamento recente: outro pagamento nos últimos 25 dias
-  const recentPmt=(sub.payments||[]).filter(p=>{if(!p.date)return false;const diff=Math.round((parseLocal(date)-parseLocal(p.date))/86400000);return diff>=0&&diff<25;}).sort((a,b)=>b.date.localeCompare(a.date))[0];
   const gross=isUSD?parseFloat((parseBRL(valueUSD)*parseBRL(exchangeRate)).toFixed(2)):parseBRL(valueBRL);
   const discAmt=discountOn?(discountType==="percent"?parseFloat((gross*parseBRL(discountVal)/100).toFixed(2)):parseBRL(discountVal)):0;
   const discounted=Math.max(0,gross-discAmt);
@@ -492,8 +354,6 @@ function ModalPay({sub,onSave,onClose,skipLabel}){
       </div>
       {wasCancelled&&<div style={{background:"var(--green-bg)",border:"1px solid var(--green)",borderRadius:10,padding:"8px 12px",fontSize:12,color:"var(--green)"}}>O dia de vencimento será atualizado para o dia deste pagamento.</div>}
       <FInput label="Data" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
-      {sub.due_day&&date===suggestPayDate(sub)&&date!==todayStr()&&<div style={{fontSize:11,color:"var(--blue)",marginTop:-8}}>📅 Data preenchida pelo dia de vencimento ({sub.due_day}). Ajuste se o cliente pagou em outra data.</div>}
-      {recentPmt&&!wasCancelled&&<div style={{background:"var(--amber-bg)",border:"1px solid var(--amber-border)",borderRadius:10,padding:"8px 12px",fontSize:12,color:"var(--amber)"}}>⚠ @{sub.username} já tem um pagamento de {fmtBRL(pmtBRL(recentPmt))} em {fmtDate(recentPmt.date)} (há {Math.round((parseLocal(date)-parseLocal(recentPmt.date))/86400000)} dias). Confira se não é duplicado.</div>}
       <FSelect label="Método" value={method} onChange={e=>setMethod(e.target.value)}>{METHODS.map(m=><option key={m.id} value={m.id}>{m.label} ({(m.fee*100).toFixed(2).replace(".",",")}%)</option>)}</FSelect>
       {method==="CARTÃO BRL"&&<label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,color:"var(--text2)",background:"var(--surface2)",borderRadius:9,padding:"9px 13px",border:"1px solid var(--border)"}}><input type="checkbox" checked={intlBRL} onChange={e=>setIntlBRL(e.target.checked)} style={{accentColor:"var(--purple)",width:14,height:14}}/><span>Cartão internacional pagando em BRL <span style={{fontSize:11,color:"var(--blue)",fontWeight:600}}>(D+5 úteis)</span></span></label>}
       {isUSD?(
@@ -525,7 +385,7 @@ function ModalPay({sub,onSave,onClose,skipLabel}){
 
 /* Modal Edit Pagamento */
 function ModalEditPagamento({row,subs,onSave,onClose}){
-  const [date,setDate]=useState(row.date);const [username,setUsername]=useState(row.username);const [method,setMethod]=useState(row.method||"PIX");const [valueBRL,setValueBRL]=useState(row.value_brl||row.value||"");const [discountOn,setDiscountOn]=useState(pmtDiscount(row)>0);const [discountVal,setDiscountVal]=useState(String(pmtDiscount(row)||""));const [intlBRL,setIntlBRL]=useState(!!row.international);
+  const [date,setDate]=useState(row.date);const [username,setUsername]=useState(row.username);const [method,setMethod]=useState(row.method||"PIX");const [valueBRL,setValueBRL]=useState(row.value_brl||row.value||"");const [discountOn,setDiscountOn]=useState(pmtDiscount(row)>0);const [discountVal,setDiscountVal]=useState(String(pmtDiscount(row)||""));
   const gross=parseBRL(valueBRL);const discAmt=discountOn?parseBRL(discountVal):0;const net=calcNet(Math.max(0,gross-discAmt),method);const fee=calcFee(Math.max(0,gross-discAmt),method);
   return(
     <ModalWrap onClose={onClose}>
@@ -546,7 +406,7 @@ function ModalEditPagamento({row,subs,onSave,onClose}){
           <div style={{display:"flex",justifyContent:"space-between"}}><span style={{color:"var(--red)"}}>Taxa</span><span style={{color:"var(--red)",fontWeight:600}}>- {fmtBRL(fee)}</span></div>
           <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid var(--border)",paddingTop:4}}><span style={{color:"var(--green)",fontWeight:600}}>Líquido</span><strong style={{color:"var(--green)"}}>{fmtBRL(net)}</strong></div>
         </div>}
-        <div style={{display:"flex",gap:8}}><Btn onClick={()=>onSave({date,username,method,value_brl:String(gross.toFixed(2)),discount:discountOn&&discAmt>0?String(discAmt.toFixed(2)):undefined,international:method==="CARTÃO BRL"&&intlBRL?true:undefined})}>Salvar</Btn><Btn variant="secondary" onClick={onClose}>Cancelar</Btn></div>
+        <div style={{display:"flex",gap:8}}><Btn onClick={()=>onSave({date,username,method,value_brl:String(gross.toFixed(2)),discount:discountOn&&discAmt>0?String(discAmt.toFixed(2)):undefined})}>Salvar</Btn><Btn variant="secondary" onClick={onClose}>Cancelar</Btn></div>
       </div>
     </ModalWrap>
   );
@@ -785,101 +645,6 @@ function ModalImportPayments({subs,onImport,onClose}){
       </>)}
       {!preview&&<Btn variant="secondary" onClick={onClose}>Cancelar</Btn>}
     </ModalWrap>
-  );
-}
-
-/* ── Botões de cobrança (copiar mensagem, WhatsApp, DM Instagram) ── */
-function CobrancaButtons({sub,msgTpl,onShowToast,onMarkReminded,size="sm"}){
-  const st=computeStatus(sub);
-  const tpl=st==="AGUARDANDO PAGAMENTO"||st.startsWith("CANCELADO")?msgTpl.atrasado:msgTpl.vencendo;
-  const msg=buildCobrancaMsg(tpl,sub);
-  const wa=waLink(sub.whatsapp,msg);
-  function copyMsg(){
-    navigator.clipboard.writeText(msg).then(
-      ()=>{onShowToast&&onShowToast("✓ Mensagem copiada — cole no WhatsApp ou DM");onMarkReminded&&onMarkReminded(sub);},
-      ()=>onShowToast&&onShowToast("Não consegui copiar a mensagem","error")
-    );
-  }
-  const reminded=sub.last_reminded_at?daysUntil(sub.last_reminded_at):null;
-  return(
-    <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
-      {reminded!==null&&reminded>=-2&&<span title={"Cobrado em "+fmtDate(sub.last_reminded_at)} style={{fontSize:10,fontWeight:700,color:"var(--blue)",background:"var(--blue-bg)",padding:"2px 7px",borderRadius:8,whiteSpace:"nowrap"}}>🔔 {reminded===0?"cobrado hoje":Math.abs(reminded)+"d"}</span>}
-      <Btn size={size} variant="secondary" onClick={copyMsg} title="Copiar mensagem de cobrança">📋 Copiar</Btn>
-      {wa
-        ? <a href={wa} target="_blank" rel="noopener" onClick={()=>onMarkReminded&&onMarkReminded(sub)} style={{textDecoration:"none"}}><Btn size={size} variant="success" title="Abrir conversa no WhatsApp" style={{pointerEvents:"none"}}>💬 WhatsApp</Btn></a>
-        : <Btn size={size} variant="ghost" title="Sem número de WhatsApp cadastrado" style={{opacity:.5}} onClick={()=>onShowToast&&onShowToast("Cadastre o WhatsApp deste assinante (botão Editar)","error")}>💬 WhatsApp</Btn>}
-      <a href={instagramDMLink(sub.username)} target="_blank" rel="noopener" style={{textDecoration:"none"}}><Btn size={size} variant="ghost" title="Abrir DM do Instagram" style={{pointerEvents:"none",border:"1.5px solid var(--border)"}}>📷 DM</Btn></a>
-    </div>
-  );
-}
-
-/* ── Tab Pendências (home operacional) ── */
-function TabPendencias({subs,msgTpl,onAddPay,onShowToast,onMarkReminded,onGoTab,onFillDueDay,onEditMsg}){
-  const aguardando=subs.map(s=>({s,st:computeStatus(s),nd:getNextDue(s)})).filter(x=>x.st==="AGUARDANDO PAGAMENTO");
-  const venceHoje=subs.map(s=>({s,st:computeStatus(s),nd:getNextDue(s)})).filter(x=>x.st==="ATIVO"&&x.nd&&daysUntil(x.nd)===0);
-  const vence3d=subs.map(s=>({s,st:computeStatus(s),nd:getNextDue(s)})).filter(x=>x.st==="ATIVO"&&x.nd&&daysUntil(x.nd)>=1&&daysUntil(x.nd)<=3);
-  const semDueDay=subs.filter(s=>["ATIVO","AGUARDANDO PAGAMENTO"].includes(computeStatus(s))&&!s.due_day);
-  const totalPend=aguardando.length+venceHoje.length+vence3d.length;
-
-  function Linha({x,accent}){
-    const s=x.s;const d=x.nd?daysUntil(x.nd):null;
-    const proExp=getProExpiry(s);
-    return(
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",background:"var(--surface)",border:"1.5px solid "+(x.st==="AGUARDANDO PAGAMENTO"?"var(--orange-dot)":"var(--border)"),borderRadius:13,boxShadow:"var(--shadow-sm)",flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:180}}>
-          <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-            <span style={{fontSize:13,fontWeight:700}}>@{s.username}</span>
-            <Pill status={x.st}/>
-            <PlanBadge plan={s.plan_name}/>
-          </div>
-          <div style={{fontSize:11,color:"var(--text2)",marginTop:4}}>
-            {fmtBRL(s.plan_value)} · Vence {x.nd?fmtDate(x.nd):"—"} {d!==null&&<span style={{color:accent,fontWeight:600}}>{d<0?`(${Math.abs(d)}d atrasado)`:d===0?"(hoje)":`(${d}d)`}</span>}
-            {x.st==="AGUARDANDO PAGAMENTO"&&proExp&&<span style={{color:"var(--orange)",fontWeight:600}}> · sai do PRO {fmtDate(proExp.toISOString().split("T")[0])} às 9h</span>}
-          </div>
-        </div>
-        <CobrancaButtons sub={s} msgTpl={msgTpl} onShowToast={onShowToast} onMarkReminded={onMarkReminded}/>
-        <Btn size="sm" onClick={()=>onAddPay(s)}>+ Pag.</Btn>
-      </div>
-    );
-  }
-  function Secao({titulo,itens,accent,nota}){
-    if(!itens.length)return null;
-    return(
-      <div>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}>
-          <span style={{fontSize:11,fontWeight:700,color:accent,letterSpacing:".06em",textTransform:"uppercase"}}>{titulo} · {itens.length}</span>
-          {nota&&<span style={{fontSize:11,color:accent,opacity:.7}}>{nota}</span>}
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:7}}>{itens.map((x,i)=><Linha key={x.s.username+i} x={x} accent={accent}/>)}</div>
-      </div>
-    );
-  }
-  return(
-    <div style={{display:"flex",flexDirection:"column",gap:20}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13,color:"var(--text2)",fontWeight:600}}>{totalPend>0?`${totalPend} pendência${totalPend>1?"s":""} para hoje`:"Sem pendências"}</div>
-        <Btn variant="ghost" size="sm" style={{border:"1.5px solid var(--border)"}} onClick={onEditMsg}>✏ Editar mensagens de cobrança</Btn>
-      </div>
-      {totalPend===0&&semDueDay.length===0&&(
-        <div style={{textAlign:"center",padding:"60px 0",color:"var(--text3)"}}>
-          <div style={{fontSize:40,marginBottom:10}}>✓</div>
-          <div style={{fontSize:15,fontWeight:700,color:"var(--green)"}}>Tudo em dia!</div>
-          <div style={{fontSize:13,marginTop:4}}>Nenhuma cobrança ou pendência para hoje.</div>
-        </div>
-      )}
-      {semDueDay.length>0&&(
-        <div style={{background:"var(--amber-bg)",border:"1.5px solid var(--amber-border)",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
-          <div style={{fontSize:12,color:"var(--amber)"}}><strong>{semDueDay.length} assinante(s) ativo(s) sem dia de vencimento.</strong> Isso afeta o cálculo de status.</div>
-          <Btn variant="warning" size="sm" onClick={onFillDueDay}>↑ Corrigir automaticamente</Btn>
-        </div>
-      )}
-      <Secao titulo="Aguardando pagamento" itens={aguardando} accent="var(--orange)" nota="período de graça — cobre já"/>
-      <Secao titulo="Vence hoje" itens={venceHoje} accent="var(--red)"/>
-      <Secao titulo="Vence nos próximos 3 dias" itens={vence3d} accent="var(--amber)"/>
-      <div style={{fontSize:11,color:"var(--text3)",textAlign:"center",paddingTop:6}}>
-        Quer ver liquidações do Stripe esperadas? <button onClick={()=>onGoTab("financeiro")} style={{border:"none",background:"none",color:"var(--purple)",fontWeight:700,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit",fontSize:11}}>Abrir Financeiro →</button>
-      </div>
-    </div>
   );
 }
 
@@ -1518,41 +1283,10 @@ function TabAssinantes({subs,groups,onEdit,onAddPay,onViewPay,onTimeline,default
 }
 
 /* Tab Vencimentos */
-function TabVencimentos({subs,onAddPay,msgTpl,onShowToast,onMarkReminded}){
-  const all=subs.map(s=>({sub:s,st:computeStatus(s),nextDue:getNextDue(s)})).filter(x=>["ATIVO","AGUARDANDO PAGAMENTO"].includes(x.st)&&x.nextDue).map(x=>({...x,days:daysUntil(x.nextDue)})).sort((a,b)=>a.days-b.days);
-  function Group({title,items,accent,note}){
-    if(!items.length)return null;
-    return(
-      <div style={{marginBottom:20}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:700,color:accent,letterSpacing:".07em",textTransform:"uppercase"}}>{title} · {items.length}</div>
-          {note&&<span style={{fontSize:11,color:accent,opacity:.7}}>{note}</span>}
-        </div>
-        {items.map(x=>{
-          const s=x.sub;const proExp=getProExpiry(s);
-          return(
-            <div key={s.username} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",background:"var(--surface)",border:"1.5px solid "+(x.st==="AGUARDANDO PAGAMENTO"?"var(--orange-dot)":"var(--border)"),borderRadius:13,marginBottom:7,boxShadow:"var(--shadow-sm)",flexWrap:"wrap"}}>
-              <div style={{flex:1,minWidth:170}}>
-                <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-                  <span style={{fontSize:13,fontWeight:700}}>@{s.username}</span>
-                  <PlanBadge plan={s.plan_name}/>
-                  <Pill status={x.st}/>
-                </div>
-                <div style={{fontSize:11,color:"var(--text2)",marginTop:3}}>
-                  Vence {fmtDate(x.nextDue)} {s.due_day&&<span style={{color:"var(--text3)"}}>· dia {s.due_day}</span>} · {fmtBRL(s.plan_value)}
-                  {x.st==="AGUARDANDO PAGAMENTO"&&proExp&&<span style={{color:"var(--orange)",fontWeight:600}}> · sai do PRO {fmtDate(proExp.toISOString().split("T")[0])} às 9h</span>}
-                </div>
-              </div>
-              <div style={{fontSize:12,fontWeight:700,color:accent,whiteSpace:"nowrap"}}>{x.days<0?`${Math.abs(x.days)}d atrasado`:x.days===0?"hoje":`${x.days}d`}</div>
-              {(x.st==="AGUARDANDO PAGAMENTO"||x.days<=7)&&<CobrancaButtons sub={s} msgTpl={msgTpl} onShowToast={onShowToast} onMarkReminded={onMarkReminded}/>}
-              <Btn variant="primary" size="sm" onClick={()=>onAddPay(s)}>+ Pag.</Btn>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-  return(<div>{!all.length&&<div style={{textAlign:"center",padding:"52px 0",color:"var(--text3)",fontSize:13}}>Nenhum assinante ativo com vencimento.</div>}<Group title="Aguardando pagamento" items={all.filter(x=>x.st==="AGUARDANDO PAGAMENTO")} accent="var(--orange)" note="período de graça — sai do PRO em 3 dias às 9h"/><Group title="Vence hoje" items={all.filter(x=>x.st==="ATIVO"&&x.days===0)} accent="var(--red)"/><Group title="Vence em 7 dias" items={all.filter(x=>x.st==="ATIVO"&&x.days>=1&&x.days<=7)} accent="var(--amber)"/><Group title="Em dia" items={all.filter(x=>x.st==="ATIVO"&&x.days>7)} accent="var(--green)"/></div>);
+function TabVencimentos({subs,onAddPay}){
+  const all=subs.map(s=>({...s,st:computeStatus(s),nextDue:getNextDue(s)})).filter(s=>["ATIVO","AGUARDANDO PAGAMENTO"].includes(s.st)&&s.nextDue).map(s=>({...s,days:daysUntil(s.nextDue)})).sort((a,b)=>a.days-b.days);
+  function Group({title,items,accent,note}){if(!items.length)return null;return(<div style={{marginBottom:20}}><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:accent,letterSpacing:".07em",textTransform:"uppercase"}}>{title} · {items.length}</div>{note&&<span style={{fontSize:11,color:accent,opacity:.7}}>{note}</span>}</div>{items.map(s=><div key={s.username} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",background:"var(--surface)",border:"1.5px solid "+(s.st==="AGUARDANDO PAGAMENTO"?"var(--orange-dot)":"var(--border)"),borderRadius:13,marginBottom:7,boxShadow:"var(--shadow-sm)"}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:13,fontWeight:700}}>@{s.username}</span><PlanBadge plan={s.plan_name}/><Pill status={s.st}/></div><div style={{fontSize:11,color:"var(--text2)",marginTop:3}}>Vence {fmtDate(s.nextDue)} {s.due_day&&<span style={{color:"var(--text3)"}}>· dia {s.due_day}</span>} · {fmtBRL(s.plan_value)}</div></div><div style={{fontSize:12,fontWeight:700,color:accent,whiteSpace:"nowrap"}}>{s.days<0?`${Math.abs(s.days)}d atrasado`:s.days===0?"hoje":`${s.days}d`}</div><Btn variant="primary" size="sm" onClick={()=>onAddPay(s)}>+ Pag.</Btn></div>)}</div>);}
+  return(<div>{!all.length&&<div style={{textAlign:"center",padding:"52px 0",color:"var(--text3)",fontSize:13}}>Nenhum assinante ativo com vencimento.</div>}<Group title="Aguardando pagamento" items={all.filter(s=>s.st==="AGUARDANDO PAGAMENTO")} accent="var(--orange)" note="cancela em 3 dias"/><Group title="Vence hoje" items={all.filter(s=>s.st==="ATIVO"&&s.days===0)} accent="var(--red)"/><Group title="Vence em 7 dias" items={all.filter(s=>s.st==="ATIVO"&&s.days>=1&&s.days<=7)} accent="var(--amber)"/><Group title="Em dia" items={all.filter(s=>s.st==="ATIVO"&&s.days>7)} accent="var(--green)"/></div>);
 }
 
 /* Tab Meses */
@@ -3098,176 +2832,24 @@ function ModalPixLote({subs,pixLotes,date,onSave,onClose}){
   );
 }
 
-/* ── Modal: editar mensagens de cobrança ── */
-function ModalMensagem({msgTpl,subs,onSave,onClose}){
-  const [vencendo,setVencendo]=useState(msgTpl.vencendo);
-  const [atrasado,setAtrasado]=useState(msgTpl.atrasado);
-  const exemplo=subs[0]||{username:"exemplo",plan_name:"PRO",plan_value:"39.90",payments:[{date:todayStr(),value_brl:"39.90",method:"PIX"}]};
-  const taArea={padding:"10px 12px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,width:"100%",minHeight:80,resize:"vertical",fontFamily:"inherit"};
-  return(
-    <ModalWrap onClose={onClose} wide>
-      <MTitle>Mensagens de cobrança</MTitle>
-      <div style={{fontSize:12,color:"var(--text2)",marginTop:-12,marginBottom:14,lineHeight:1.6}}>
-        Variáveis disponíveis: <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{nome}}"}</code> <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{valor}}"}</code> <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{plano}}"}</code> <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{vencimento}}"}</code> <code style={{background:"var(--surface2)",padding:"1px 5px",borderRadius:4}}>{"{{dias_atraso}}"}</code>
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:16}}>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:".05em",marginBottom:6}}>Para quem está vencendo (lembrete)</div>
-          <textarea value={vencendo} onChange={e=>setVencendo(e.target.value)} style={taArea}/>
-          <div style={{fontSize:11,color:"var(--text3)",marginTop:6,background:"var(--surface2)",borderRadius:8,padding:"8px 11px"}}><strong>Prévia:</strong> {buildCobrancaMsg(vencendo,exemplo)}</div>
-        </div>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:".05em",marginBottom:6}}>Para quem está atrasado / aguardando</div>
-          <textarea value={atrasado} onChange={e=>setAtrasado(e.target.value)} style={taArea}/>
-          <div style={{fontSize:11,color:"var(--text3)",marginTop:6,background:"var(--surface2)",borderRadius:8,padding:"8px 11px"}}><strong>Prévia:</strong> {buildCobrancaMsg(atrasado,exemplo)}</div>
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          <Btn onClick={()=>onSave({vencendo,atrasado})}>Salvar</Btn>
-          <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
-          <Btn variant="ghost" style={{marginLeft:"auto"}} onClick={()=>{setVencendo(DEFAULT_MSG_TPL.vencendo);setAtrasado(DEFAULT_MSG_TPL.atrasado);}}>Restaurar padrão</Btn>
-        </div>
-      </div>
-    </ModalWrap>
-  );
-}
-
-/* ── Tela de Login ── */
-function LoginScreen({onLogin}){
-  const [email,setEmail]=useState(()=>localStorage.getItem("rdm_last_email")||"");
-  const [senha,setSenha]=useState("");
-  const [err,setErr]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [showEmailLogin,setShowEmailLogin]=useState(false); // email/senha como reserva
-  const ERR_MAP={
-    "auth/invalid-credential":"Email ou senha incorretos.",
-    "auth/wrong-password":"Senha incorreta.",
-    "auth/user-not-found":"Usuário não encontrado.",
-    "auth/invalid-email":"Email inválido.",
-    "auth/too-many-requests":"Muitas tentativas. Aguarde alguns minutos.",
-    "auth/network-request-failed":"Sem conexão com a internet.",
-    "auth/popup-closed-by-user":"Login cancelado.",
-    "auth/popup-blocked":"O navegador bloqueou a janela de login. Permita pop-ups e tente de novo.",
-    "auth/unauthorized-domain":"Este domínio não está autorizado no Firebase."
-  };
-  async function handleGoogleLogin(){
-    setLoading(true);setErr("");
-    try{
-      const provider=new firebase.auth.GoogleAuthProvider();
-      provider.setCustomParameters({prompt:"select_account"});
-      await fbAuth.signInWithPopup(provider);
-      onLogin();
-    }catch(e){
-      setErr(ERR_MAP[e.code]||("Erro ao entrar: "+(e.message||e.code)));
-      setLoading(false);
-    }
-  }
-  async function handleEmailLogin(){
-    if(!email.trim()||!senha){setErr("Preencha email e senha.");return;}
-    setLoading(true);setErr("");
-    try{
-      await fbAuth.signInWithEmailAndPassword(email.trim(),senha);
-      localStorage.setItem("rdm_last_email",email.trim());
-      onLogin();
-    }catch(e){
-      setErr(ERR_MAP[e.code]||("Erro ao entrar: "+(e.message||e.code)));
-      setLoading(false);
-    }
-  }
-  return(
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:20,padding:32,width:"100%",maxWidth:380,boxShadow:"var(--shadow-md)"}}>
-        <div style={{fontSize:24,fontWeight:800,letterSpacing:"-.03em",marginBottom:4}}>respon<span style={{color:"var(--purple)"}}>DM</span></div>
-        <div style={{fontSize:13,color:"var(--text3)",marginBottom:24}}>Controle de Assinaturas</div>
-        {err&&<div style={{fontSize:12,color:"var(--red)",background:"var(--red-bg)",border:"1px solid var(--red)",borderRadius:9,padding:"8px 12px",fontWeight:600,marginBottom:14}}>{err}</div>}
-        {/* Botão principal: Google */}
-        <button onClick={handleGoogleLogin} disabled={loading} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,width:"100%",padding:"11px 16px",borderRadius:11,border:"1.5px solid var(--border2)",background:"var(--surface)",color:"var(--text)",fontSize:14,fontWeight:600,cursor:loading?"default":"pointer",fontFamily:"inherit",opacity:loading?.6:1}}>
-          <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-          {loading?"Entrando...":"Entrar com Google"}
-        </button>
-        {/* Email/senha — reserva, escondido por padrão */}
-        {showEmailLogin?(
-          <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:18,borderTop:"1px solid var(--border)",paddingTop:18}}>
-            <FInput label="Email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setErr("");}} onKeyDown={e=>{if(e.key==="Enter")handleEmailLogin();}} placeholder="seu@email.com"/>
-            <FInput label="Senha" type="password" value={senha} onChange={e=>{setSenha(e.target.value);setErr("");}} onKeyDown={e=>{if(e.key==="Enter")handleEmailLogin();}} placeholder="••••••••"/>
-            <Btn variant="secondary" onClick={handleEmailLogin} style={{opacity:loading?.6:1,pointerEvents:loading?"none":"auto"}}>{loading?"Entrando...":"Entrar com email e senha"}</Btn>
-          </div>
-        ):(
-          <button onClick={()=>{setShowEmailLogin(true);setErr("");}} style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:11,fontWeight:600,marginTop:14,fontFamily:"inherit",textDecoration:"underline",width:"100%"}}>Entrar com email e senha</button>
-        )}
-        <div style={{fontSize:11,color:"var(--text3)",marginTop:18,lineHeight:1.6}}>Seus dados ficam protegidos na nuvem (Firebase). Apenas contas autorizadas têm acesso.</div>
-      </div>
-    </div>
-  );
-}
-
 /* App */
 function App(){
-  const [subs,setSubs]=useState([]);const [groups,setGroups]=useState([]);const [metas,setMetas]=useState({});const [fin,setFin]=useState({custos:[],extras:[],liquidacoes:{}});const [msgTpl,setMsgTpl]=useState(DEFAULT_MSG_TPL);const [tab,setTab]=useState("pendencias");const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [dark,setDark]=useState(()=>localStorage.getItem("rdm_dark")==="1");const [globalSearch,setGlobalSearch]=useState("");const [showGlobalSearch,setShowGlobalSearch]=useState(false);const [backupReminder,setBackupReminder]=useState(false);
-  const [authReady,setAuthReady]=useState(false);  // já sabemos se há usuário logado?
-  const [user,setUser]=useState(null);             // usuário Firebase logado
-  const [cloudLoading,setCloudLoading]=useState(true); // carregando dados da nuvem
-  const [showShortcuts,setShowShortcuts]=useState(false);
-  const [denied,setDenied]=useState(false);        // logou mas email não autorizado
-  const globalSearchRef=useRef();const jsonRestoreRef=useRef();const cloudJsonRef=useRef();
+  const [subs,setSubs]=useState([]);const [groups,setGroups]=useState([]);const [metas,setMetas]=useState({});const [fin,setFin]=useState({custos:[],extras:[],liquidacoes:{}});const [tab,setTab]=useState("dashboard");const [modal,setModal]=useState(null);const [toast,setToast]=useState(null);const [dark,setDark]=useState(()=>localStorage.getItem("rdm_dark")==="1");const [globalSearch,setGlobalSearch]=useState("");const [showGlobalSearch,setShowGlobalSearch]=useState(false);const [backupReminder,setBackupReminder]=useState(false);
+  const globalSearchRef=useRef();const jsonRestoreRef=useRef();
 
   useEffect(()=>{document.body.classList.toggle("dark",dark);localStorage.setItem("rdm_dark",dark?"1":"0");},[dark]);
+  useEffect(()=>{try{const r=localStorage.getItem(STORAGE_KEY);if(r)setSubs(JSON.parse(r));}catch(_){}},[]); 
+  useEffect(()=>{try{const r=localStorage.getItem(GROUPS_KEY);if(r)setGroups(JSON.parse(r));}catch(_){}  },[]);
+  useEffect(()=>{try{const r=localStorage.getItem(METAS_KEY);if(r)setMetas(JSON.parse(r));}catch(_){}},[]);
+  useEffect(()=>{try{const r=localStorage.getItem(FIN_KEY);if(r)setFin(JSON.parse(r));}catch(_){}},[]);
   useEffect(()=>{if(showGlobalSearch&&globalSearchRef.current)globalSearchRef.current.focus();},[showGlobalSearch]);
   useEffect(()=>{const BKEY="rdm_backup_reminded";function check(){const now=new Date();const todayS=now.toISOString().split("T")[0];const last=localStorage.getItem(BKEY);if(now.getHours()>=20&&last!==todayS){setBackupReminder(true);localStorage.setItem(BKEY,todayS);}}check();const iv=setInterval(check,60000);return()=>clearInterval(iv);},[]);
 
-  // Observa o estado de login do Firebase
-  useEffect(()=>{
-    const unsub=fbAuth.onAuthStateChanged(u=>{
-      setAuthReady(true);
-      if(u&&u.email&&!AUTHORIZED_EMAILS.includes(u.email.toLowerCase())){
-        // logou com uma conta não autorizada — avisa e desloga
-        setDenied(true);setUser(null);
-        fbAuth.signOut();
-        return;
-      }
-      // logout disparado pela própria trava: NÃO limpa o aviso de "denied"
-      if(!u){setUser(null);return;}
-      // login válido
-      setDenied(false);setUser(u);
-    });
-    return unsub;
-  },[]);
-
-  // Carrega dados: primeiro o cache local (instantâneo), depois a nuvem (autoridade)
-  useEffect(()=>{
-    if(!user)return;
-    // 1) cache local imediato
-    try{const r=localStorage.getItem(STORAGE_KEY);if(r)setSubs(JSON.parse(r));}catch(_){}
-    try{const r=localStorage.getItem(GROUPS_KEY);if(r)setGroups(JSON.parse(r));}catch(_){}
-    try{const r=localStorage.getItem(METAS_KEY);if(r)setMetas(JSON.parse(r));}catch(_){}
-    try{const r=localStorage.getItem(FIN_KEY);if(r)setFin(JSON.parse(r));}catch(_){}
-    try{const r=localStorage.getItem(MSG_KEY);if(r)setMsgTpl({...DEFAULT_MSG_TPL,...JSON.parse(r)});}catch(_){}
-    // 2) nuvem
-    (async()=>{
-      setCloudLoading(true);
-      try{
-        const[cSubs,cGroups,cMetas,cFin,cMsg]=await Promise.all([
-          fbLoadSubs(),fbLoadDoc("grupos"),fbLoadDoc("metas"),fbLoadDoc("financeiro"),fbLoadDoc("mensagem")
-        ]);
-        if(cSubs){setSubs(cSubs);try{localStorage.setItem(STORAGE_KEY,JSON.stringify(cSubs));}catch(_){}}
-        if(cGroups){setGroups(cGroups);try{localStorage.setItem(GROUPS_KEY,JSON.stringify(cGroups));}catch(_){}}
-        if(cMetas){setMetas(cMetas);try{localStorage.setItem(METAS_KEY,JSON.stringify(cMetas));}catch(_){}}
-        if(cFin){setFin(cFin);try{localStorage.setItem(FIN_KEY,JSON.stringify(cFin));}catch(_){}}
-        if(cMsg){setMsgTpl({...DEFAULT_MSG_TPL,...cMsg});try{localStorage.setItem(MSG_KEY,JSON.stringify(cMsg));}catch(_){}}
-      }catch(e){
-        showToast("Erro ao carregar da nuvem — usando dados locais.","error");
-      }
-      setCloudLoading(false);
-    })();
-  },[user]);
-
-  function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
-  // update salva localStorage na hora e sincroniza com a nuvem em segundo plano
-  function update(next){setSubs(next);try{localStorage.setItem(STORAGE_KEY,JSON.stringify(next));}catch(_){}fbSaveSubs(next).catch(()=>showToast("⚠ Falha ao sincronizar com a nuvem.","error"));}
-  function updateGroups(next){setGroups(next);try{localStorage.setItem(GROUPS_KEY,JSON.stringify(next));}catch(_){}fbSaveDoc("grupos",next).catch(()=>{});}
-  function saveMetas(key,val){setMetas(prev=>{const next={...prev,[key]:val};try{localStorage.setItem(METAS_KEY,JSON.stringify(next));}catch(_){}fbSaveDoc("metas",next).catch(()=>{});return next;});}
-  function saveFin(next){setFin(next);try{localStorage.setItem(FIN_KEY,JSON.stringify(next));}catch(_){}fbSaveDoc("financeiro",next).catch(()=>{});}
-  function saveMsgTpl(next){setMsgTpl(next);try{localStorage.setItem(MSG_KEY,JSON.stringify(next));}catch(_){}fbSaveDoc("mensagem",next).catch(()=>{});}
-  function handleLogout(){if(window.confirm("Sair da conta?"))fbAuth.signOut();}
+  function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3000);}
+  function update(next){setSubs(next);try{localStorage.setItem(STORAGE_KEY,JSON.stringify(next));}catch(_){}}
+  function updateGroups(next){setGroups(next);try{localStorage.setItem(GROUPS_KEY,JSON.stringify(next));}catch(_){}}
+  function saveMetas(key,val){setMetas(prev=>{const next={...prev,[key]:val};try{localStorage.setItem(METAS_KEY,JSON.stringify(next));}catch(_){}return next;});}
+  function saveFin(next){setFin(next);try{localStorage.setItem(FIN_KEY,JSON.stringify(next));}catch(_){}}
   function saveGroup(g){updateGroups(groups.find(x=>x.id===g.id)?groups.map(x=>x.id===g.id?g:x):[...groups,g]);}
   function deleteGroup(id){updateGroups(groups.filter(g=>g.id!==id));}
   function saveSub(sub,oldUsername){
@@ -3331,7 +2913,7 @@ function App(){
   }
 
   function handleMesEditSave(row,edited){
-    const newSubs=subs.map(s=>{if(s.username===row.username){const pmts=[...(s.payments||[])];if(edited.username===row.username){pmts[row.pmtIdx]={...pmts[row.pmtIdx],date:edited.date,value_brl:edited.value_brl,method:edited.method,discount:edited.discount,international:edited.international};return{...s,payments:pmts};}else{pmts.splice(row.pmtIdx,1);return{...s,payments:pmts};}}if(edited.username!==row.username&&s.username===edited.username)return{...s,payments:[...(s.payments||[]),{date:edited.date,value_brl:edited.value_brl,method:edited.method,discount:edited.discount,international:edited.international}]};return s;});
+    const newSubs=subs.map(s=>{if(s.username===row.username){const pmts=[...(s.payments||[])];if(edited.username===row.username){pmts[row.pmtIdx]={...pmts[row.pmtIdx],date:edited.date,value_brl:edited.value_brl,method:edited.method,discount:edited.discount};return{...s,payments:pmts};}else{pmts.splice(row.pmtIdx,1);return{...s,payments:pmts};}}if(edited.username!==row.username&&s.username===edited.username)return{...s,payments:[...(s.payments||[]),{date:edited.date,value_brl:edited.value_brl,method:edited.method,discount:edited.discount}]};return s;});
     update(newSubs);setModal(null);showToast("Pagamento atualizado");
   }
 
@@ -3344,112 +2926,19 @@ function App(){
     showToast(`✓ ${count} assinantes atualizados com dia de vencimento`);
   }
 
-  function exportJSON(){const today=new Date().toISOString().split("T")[0];const blob=new Blob([JSON.stringify({subs,groups,metas,fin},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`respondm_backup_${today}.json`;a.click();localStorage.setItem("rdm_last_export",today);}
-  function handleRestoreJSON(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{try{const data=JSON.parse(ev.target.result);const subsData=Array.isArray(data)?data:data.subs;const groupsData=Array.isArray(data)?[]:data.groups||[];if(!Array.isArray(subsData))throw new Error("Formato inválido");if(window.confirm(`Restaurar ${subsData.length} assinantes e ${groupsData.length} grupos? Isso substitui os dados atuais (local e nuvem).`)){update(subsData);updateGroups(groupsData);if(!Array.isArray(data)&&data.metas){setMetas(data.metas);try{localStorage.setItem(METAS_KEY,JSON.stringify(data.metas));}catch(_){}fbSaveDoc("metas",data.metas).catch(()=>{});}if(!Array.isArray(data)&&data.fin)saveFin(data.fin);showToast(`✓ Restaurado e sincronizado com a nuvem`);}}catch(err){showToast("Erro ao restaurar: "+err.message,"error");}};r.readAsText(file,"UTF-8");e.target.value="";}
-  // Importação inicial: lê o respondm_backup.json e sobe TUDO para a nuvem
-  function handleImportToCloud(e){
-    const file=e.target.files[0];if(!file)return;
-    const r=new FileReader();
-    r.onload=async ev=>{
-      try{
-        const data=JSON.parse(ev.target.result);
-        const subsData=Array.isArray(data)?data:data.subs;
-        const groupsData=Array.isArray(data)?[]:(data.groups||[]);
-        if(!Array.isArray(subsData))throw new Error("Formato inválido — esperado um backup do ResponDM.");
-        if(!window.confirm(`Enviar ${subsData.length} assinantes e ${groupsData.length} grupos para a nuvem? Isso substitui o que estiver lá.`))return;
-        showToast(`↑ Enviando ${subsData.length} assinantes para a nuvem...`);
-        await fbSaveSubs(subsData);
-        await fbSaveDoc("grupos",groupsData);
-        if(!Array.isArray(data)&&data.metas)await fbSaveDoc("metas",data.metas);
-        if(!Array.isArray(data)&&data.fin)await fbSaveDoc("financeiro",data.fin);
-        setSubs(subsData);setGroups(groupsData);
-        if(!Array.isArray(data)&&data.metas)setMetas(data.metas);
-        if(!Array.isArray(data)&&data.fin)setFin(data.fin);
-        try{localStorage.setItem(STORAGE_KEY,JSON.stringify(subsData));localStorage.setItem(GROUPS_KEY,JSON.stringify(groupsData));}catch(_){}
-        showToast(`✓ ${subsData.length} assinantes enviados para a nuvem!`);
-      }catch(err){showToast("Erro ao importar: "+err.message,"error");}
-    };
-    r.readAsText(file,"UTF-8");e.target.value="";
-  }
+  function exportJSON(){const blob=new Blob([JSON.stringify({subs,groups},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="respondm_backup.json";a.click();}
+  function handleRestoreJSON(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{try{const data=JSON.parse(ev.target.result);const subsData=Array.isArray(data)?data:data.subs;const groupsData=Array.isArray(data)?[]:data.groups||[];if(!Array.isArray(subsData))throw new Error("Formato inválido");if(window.confirm(`Restaurar ${subsData.length} assinantes e ${groupsData.length} grupos?`)){update(subsData);updateGroups(groupsData);showToast(`✓ Restaurado com sucesso`);}}catch(err){showToast("Erro ao restaurar: "+err.message,"error");}};r.readAsText(file,"UTF-8");e.target.value="";}
   function exportCSV(){const h=["USER","PLANO","MOEDA","DIA_VENC","VALOR","STATUS","QTD_PAG","TOTAL_BRUTO","TOTAL_LIQUIDO","ÚLTIMO_PAG","PRÓX_VENC","NOTAS","MOTIVO_CANCEL"];const rows=subs.map(s=>{const pmts=s.payments||[];const bruto=pmts.reduce((a,p)=>a+pmtBRL(p),0);const net=pmts.reduce((a,p)=>a+pmtNet(p),0);const last=pmts.length?pmts.reduce((a,b)=>a.date>b.date?a:b):null;return[s.username,s.plan_name||"",s.currency||"BRL",s.due_day||"",fmtBRL(s.plan_value),computeStatus(s),pmts.length,fmtBRL(bruto),fmtBRL(net),last?fmtDate(last.date):"",getNextDue(s)?fmtDate(getNextDue(s)):"",s.notes||"",s.cancel_reason||""].join(",");});const blob=new Blob(["\uFEFF"+[h.join(","),...rows].join("\n")],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="assinaturas_respondm.csv";a.click();}
   function handleGlobalSearch(val){setGlobalSearch(val);if(val.trim())setTab("assinantes");}
-  // marca que o assinante foi cobrado hoje (sem abrir modal)
-  function markReminded(sub){
-    const today=todayStr();
-    if(sub.last_reminded_at===today)return;
-    update(subs.map(s=>s.username===sub.username?{...s,last_reminded_at:today}:s));
-  }
 
   const upcoming=subs.filter(s=>{const nd=getNextDue(s);if(!nd)return false;const d=daysUntil(nd);return["ATIVO","AGUARDANDO PAGAMENTO"].includes(computeStatus(s))&&d!==null&&d>=-3&&d<=7;});
-  const tabs=[{id:"pendencias",label:"📥 Pendências"},{id:"dashboard",label:"Dashboard"},{id:"assinantes",label:`Assinantes (${subs.length})`},{id:"vencimentos",label:"Vencimentos"+(upcoming.length?` ⚠ ${upcoming.length}`:"")},{id:"meses",label:"Pagamentos por mês"},{id:"comparativo",label:"Comparativo"},{id:"grupos",label:`Grupos (${groups.length})`},{id:"metas",label:"🎯 Metas"},{id:"financeiro",label:"💰 Financeiro"}];
-
-  // ── Hotkeys globais ──
-  useEffect(()=>{
-    function onKey(e){
-      // ignora se estiver digitando em campo de texto ou com modal aberto
-      const tag=(e.target.tagName||"").toLowerCase();
-      const typing=tag==="input"||tag==="textarea"||tag==="select"||e.target.isContentEditable;
-      if(e.key==="Escape"){setShowShortcuts(false);return;}
-      if(typing||e.ctrlKey||e.metaKey||e.altKey)return;
-      if(modal)return; // não dispara atalho com modal aberto
-      const k=e.key.toLowerCase();
-      if(k==="n"){e.preventDefault();setModal({type:"sub",data:null});}
-      else if(k==="p"){e.preventDefault();setTab("assinantes");setShowGlobalSearch(true);}
-      else if(k==="/"){e.preventDefault();setShowGlobalSearch(true);}
-      else if(k==="i"){e.preventDefault();setTab("pendencias");}
-      else if(k==="d"){e.preventDefault();setTab("dashboard");}
-      else if(k==="a"){e.preventDefault();setTab("assinantes");}
-      else if(k==="v"){e.preventDefault();setTab("vencimentos");}
-      else if(k==="m"){e.preventDefault();setTab("meses");}
-      else if(k==="f"){e.preventDefault();setTab("financeiro");}
-      else if(k==="?"){e.preventDefault();setShowShortcuts(s=>!s);}
-    }
-    window.addEventListener("keydown",onKey);
-    return()=>window.removeEventListener("keydown",onKey);
-  },[modal]);
-
-  // ── Telas de gate: aguardando auth / login / carregando nuvem ──
-  if(!authReady)return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text3)",fontSize:14}}>Carregando…</div>);
-  if(denied)return(
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"var(--surface)",border:"1.5px solid var(--red)",borderRadius:20,padding:32,width:"100%",maxWidth:380,boxShadow:"var(--shadow-md)",textAlign:"center"}}>
-        <div style={{fontSize:32,marginBottom:10}}>🔒</div>
-        <div style={{fontSize:16,fontWeight:800,marginBottom:8}}>Conta sem acesso</div>
-        <div style={{fontSize:13,color:"var(--text2)",lineHeight:1.6,marginBottom:18}}>Essa conta Google não tem permissão para usar o ResponDM Assinaturas. Use uma conta autorizada.</div>
-        <Btn onClick={()=>setDenied(false)}>Voltar ao login</Btn>
-      </div>
-    </div>
-  );
-  if(!user)return <LoginScreen onLogin={()=>{}}/>;
-  if(cloudLoading&&subs.length===0)return(<div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:"var(--text3)",fontSize:14}}><div style={{fontSize:22,fontWeight:800}}>respon<span style={{color:"var(--purple)"}}>DM</span></div><div>Sincronizando com a nuvem…</div></div>);
+  const tabs=[{id:"dashboard",label:"Dashboard"},{id:"assinantes",label:`Assinantes (${subs.length})`},{id:"vencimentos",label:"Vencimentos"+(upcoming.length?` ⚠ ${upcoming.length}`:"")},{id:"meses",label:"Pagamentos por mês"},{id:"comparativo",label:"Comparativo"},{id:"grupos",label:`Grupos (${groups.length})`},{id:"metas",label:"🎯 Metas"},{id:"financeiro",label:"💰 Financeiro"}];
 
   return(
     <div>
       {toast&&<div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:toast.type==="success"?"var(--green)":"var(--red)",color:"#fff",padding:"12px 22px",borderRadius:12,fontSize:13,fontWeight:600,zIndex:300,boxShadow:"0 4px 20px rgba(0,0,0,.2)",whiteSpace:"nowrap"}}>{toast.msg}</div>}
       {backupReminder&&<div style={{position:"fixed",bottom:24,right:24,background:"var(--surface)",border:"1.5px solid var(--purple)",borderRadius:16,padding:"16px 20px",zIndex:299,boxShadow:"var(--shadow-md)",maxWidth:300}}><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}><div><div style={{fontSize:14,fontWeight:700,color:"var(--text)",marginBottom:6}}>💾 Hora do backup!</div><div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>São 20h — faça o backup dos seus dados para não perder nada.</div></div><button onClick={()=>setBackupReminder(false)} style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:16,lineHeight:1,padding:0,fontFamily:"inherit"}}>✕</button></div><button onClick={()=>{exportJSON();setBackupReminder(false);}} style={{marginTop:12,width:"100%",background:"var(--purple)",color:"#fff",border:"none",borderRadius:9,padding:"8px 0",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>↓ Exportar backup agora</button></div>}
       <input ref={jsonRestoreRef} type="file" accept=".json" style={{display:"none"}} onChange={handleRestoreJSON}/>
-      <input ref={cloudJsonRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImportToCloud}/>
-
-      {/* Modal de atalhos */}
-      {showShortcuts&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(26,22,48,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:400,backdropFilter:"blur(3px)"}} onClick={e=>{if(e.target===e.currentTarget)setShowShortcuts(false);}}>
-          <div style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:18,padding:24,width:"100%",maxWidth:340,margin:20,boxShadow:"var(--shadow-md)"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-              <div style={{fontSize:15,fontWeight:800}}>Atalhos de teclado</div>
-              <button onClick={()=>setShowShortcuts(false)} style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:18,fontFamily:"inherit"}}>✕</button>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:7}}>
-              {[["N","Novo assinante"],["P","Registrar pagamento"],["/","Buscar assinante"],["I","Pendências"],["D","Dashboard"],["A","Assinantes"],["V","Vencimentos"],["M","Pagamentos por mês"],["F","Financeiro"],["Esc","Fechar janela"],["?","Mostrar esta tabela"]].map(([k,d])=>(
-                <div key={k} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:13}}>
-                  <span style={{color:"var(--text2)"}}>{d}</span>
-                  <kbd style={{background:"var(--surface2)",border:"1.5px solid var(--border2)",borderRadius:6,padding:"2px 9px",fontSize:12,fontWeight:700,color:"var(--text)",fontFamily:"inherit",minWidth:30,textAlign:"center"}}>{k}</kbd>
-                </div>
-              ))}
-            </div>
-            <div style={{fontSize:11,color:"var(--text3)",marginTop:14,lineHeight:1.5}}>Os atalhos não funcionam enquanto você digita num campo ou com uma janela aberta.</div>
-          </div>
-        </div>
-      )}
 
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 0 16px",gap:10,flexWrap:"wrap"}}>
@@ -3468,15 +2957,12 @@ function App(){
         </div>
         <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
           {showGlobalSearch?(<div style={{display:"flex",alignItems:"center",gap:6}}><input ref={globalSearchRef} value={globalSearch} onChange={e=>handleGlobalSearch(e.target.value)} onBlur={()=>{if(!globalSearch)setShowGlobalSearch(false);}} placeholder="Buscar assinante..." style={{padding:"7px 12px",borderRadius:10,border:"1.5px solid var(--purple)",background:"var(--surface)",color:"var(--text)",fontSize:13,width:180,fontFamily:"inherit"}}/><button onClick={()=>{setGlobalSearch("");setShowGlobalSearch(false);}} style={{border:"none",background:"none",cursor:"pointer",color:"var(--text2)",fontSize:16,fontFamily:"inherit"}}>✕</button></div>):(<button onClick={()=>setShowGlobalSearch(true)} title="Busca global" style={{border:"1.5px solid var(--border)",background:"var(--surface)",borderRadius:10,width:36,height:36,cursor:"pointer",fontSize:16,color:"var(--text2)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>🔍</button>)}
-          <button onClick={()=>setShowShortcuts(true)} title="Atalhos de teclado (?)" style={{border:"1.5px solid var(--border)",background:"var(--surface)",borderRadius:10,width:36,height:36,cursor:"pointer",fontSize:15,fontWeight:700,color:"var(--text2)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>⌨</button>
           <button onClick={()=>setDark(d=>!d)} title={dark?"Modo claro":"Modo escuro"} style={{border:"1.5px solid var(--border)",background:"var(--surface)",borderRadius:10,width:36,height:36,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>{dark?"☀️":"🌙"}</button>
           <button onClick={exportJSON} title="Exportar backup JSON" style={{border:"1.5px solid var(--border)",background:"var(--surface)",borderRadius:10,padding:"0 12px",height:36,cursor:"pointer",fontSize:12,color:"var(--text2)",fontWeight:600,fontFamily:"inherit",whiteSpace:"nowrap"}}>↓ JSON</button>
           <button onClick={()=>jsonRestoreRef.current.click()} title="Restaurar backup JSON" style={{border:"1.5px solid var(--border)",background:"var(--surface)",borderRadius:10,padding:"0 12px",height:36,cursor:"pointer",fontSize:12,color:"var(--text2)",fontWeight:600,fontFamily:"inherit",whiteSpace:"nowrap"}}>↑ JSON</button>
-          <button onClick={()=>cloudJsonRef.current.click()} title="Importar backup JSON para a nuvem" style={{border:"1.5px solid var(--purple)",background:"var(--purple-light)",borderRadius:10,padding:"0 12px",height:36,cursor:"pointer",fontSize:12,color:"var(--purple)",fontWeight:700,fontFamily:"inherit",whiteSpace:"nowrap"}}>☁ Importar p/ nuvem</button>
           <Btn variant="ghost" style={{fontSize:12,padding:"7px 14px",border:"1.5px solid var(--border)"}} onClick={()=>setModal({type:"import"})}>↑ Planilha</Btn>
           <Btn variant="secondary" onClick={exportCSV}>↓ CSV</Btn>
           <Btn onClick={()=>setModal({type:"sub",data:null})}>+ Novo</Btn>
-          <button onClick={handleLogout} title={`Sair (${user.email})`} style={{border:"1.5px solid var(--border)",background:"var(--surface)",borderRadius:10,width:36,height:36,cursor:"pointer",fontSize:15,color:"var(--text2)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>⏻</button>
         </div>
       </div>
 
@@ -3486,10 +2972,9 @@ function App(){
         {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"10px 16px",fontSize:13,border:"none",background:"none",cursor:"pointer",color:tab===t.id?"var(--purple)":"var(--text2)",fontWeight:tab===t.id?700:500,borderBottom:tab===t.id?"2.5px solid var(--purple)":"2.5px solid transparent",marginBottom:-2,letterSpacing:"-.01em",transition:"color .15s",whiteSpace:"nowrap",fontFamily:"inherit"}}>{t.label}</button>)}
       </div>
 
-      {tab==="pendencias"&&<TabPendencias subs={subs} msgTpl={msgTpl} onAddPay={s=>setModal({type:"pay",data:s})} onShowToast={showToast} onMarkReminded={markReminded} onGoTab={setTab} onFillDueDay={fillAllDueDay} onEditMsg={()=>setModal({type:"mensagem"})}/>}
       {tab==="dashboard"&&<TabDashboard subs={subs} onFillDueDay={fillAllDueDay}/>}
       {tab==="assinantes"&&<TabAssinantes subs={subs} groups={groups} onEdit={s=>setModal({type:"sub",data:s})} onAddPay={s=>setModal({type:"pay",data:s})} onViewPay={s=>setModal({type:"paylist",data:s})} onTimeline={s=>setModal({type:"timeline",data:s})} defaultSearch={globalSearch}/>}
-      {tab==="vencimentos"&&<TabVencimentos subs={subs} onAddPay={s=>setModal({type:"pay",data:s})} msgTpl={msgTpl} onShowToast={showToast} onMarkReminded={markReminded}/>}
+      {tab==="vencimentos"&&<TabVencimentos subs={subs} onAddPay={s=>setModal({type:"pay",data:s})}/>}
       {tab==="meses"&&<TabMeses subs={subs} onUpdateSubs={update} onShowToast={showToast} onEditPay={r=>setModal({type:"editpay",data:r})} onViewSub={s=>s&&setModal({type:"subinfo",data:s})}/>}
       {tab==="comparativo"&&<TabComparativo subs={subs}/>}
       {tab==="grupos"&&<TabGrupos subs={subs} groups={groups} onSaveGroup={saveGroup} onDeleteGroup={deleteGroup}/>}
@@ -3503,7 +2988,6 @@ function App(){
         {modal.type==="pay"&&<ModalWrap onClose={()=>setModal(null)}><ModalPay sub={modal.data} onSave={p=>savePay(modal.data,p)} onClose={()=>setModal(null)}/></ModalWrap>}
         {modal.type==="paylist"&&<ModalWrap onClose={()=>setModal(null)} wide><ModalPayList sub={modal.data} onDeletePay={idx=>deletePayFromSorted(modal.data,idx)} onClose={()=>setModal(null)}/></ModalWrap>}
         {modal.type==="editpay"&&<ModalEditPagamento row={modal.data} subs={subs} onSave={edited=>handleMesEditSave(modal.data,edited)} onClose={()=>setModal(null)}/> }
-        {modal.type==="mensagem"&&<ModalMensagem msgTpl={msgTpl} subs={subs} onSave={t=>{saveMsgTpl(t);setModal(null);showToast("✓ Mensagens salvas");}} onClose={()=>setModal(null)}/>}
           {modal.type==="timeline"&&<ModalTimeline sub={modal.data} onClose={()=>setModal(null)}/>}
           {modal.type==="subinfo"&&<ModalSubInfo sub={modal.data} onClose={()=>setModal(null)} onEdit={s=>setModal({type:"sub",data:s})} onAddPay={s=>setModal({type:"pay",data:s})} onViewPay={s=>setModal({type:"paylist",data:s})}/>}
       </>)}
