@@ -806,25 +806,58 @@ function ModalImportOriginal({subs,onImport,onClose}){
 /* Modal Import Payments */
 function ModalImportPayments({subs,onImport,onClose}){
   const [preview,setPreview]=useState(null);const [error,setError]=useState("");const fileRef=useRef();
-  function handleFile(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{try{const p=parsePaymentsCSV(ev.target.result);if(!p.length){setError("Nenhum pagamento encontrado.");return;}setPreview(p);setError("");}catch(err){setError("Erro: "+err.message);}};r.readAsText(file,"UTF-8");}
+  // Cada linha vira editável: detecta plano pelo valor; valor "quebrado" (pró-rata) fica marcado p/ ajuste.
+  function buildRows(parsed){
+    return parsed.map((p,i)=>{
+      const guessed=guessPlan(p.value_brl);
+      const proRata=guessed==="Personalizado"; // valor não bate com nenhum plano → upgrade/pró-rata
+      return {...p,_id:i,plan:guessed,_proRata:proRata};
+    });
+  }
+  function handleFile(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{try{const p=parsePaymentsCSV(ev.target.result);if(!p.length){setError("Nenhum pagamento encontrado.");return;}setPreview(buildRows(p));setError("");}catch(err){setError("Erro: "+err.message);}};r.readAsText(file,"UTF-8");}
+  function setCell(id,key,val){setPreview(rows=>rows.map(r=>{if(r._id!==id)return r;const nr={...r,[key]:val};if(key==="plan")nr._proRata=false;return nr;}));}
+  function removeRow(id){setPreview(rows=>rows.filter(r=>r._id!==id));}
   const unkUsers=preview?[...new Set(preview.filter(p=>!subs.find(s=>s.username===p.username)).map(p=>p.username))]:[];
+  const pendentes=preview?preview.filter(r=>r._proRata).length:0;
+  const cell={padding:"6px 8px",borderBottom:"1px solid var(--border)",fontSize:12};
+  const inp={padding:"5px 7px",borderRadius:7,border:"1.5px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,fontFamily:"inherit",width:"100%"};
   return(
     <ModalWrap onClose={onClose} wide>
       <MTitle>Importar pagamentos</MTitle>
-      <div style={{background:"var(--surface2)",border:"1.5px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:18}}>
-        <div style={{fontSize:11,fontWeight:700,color:"var(--text3)",letterSpacing:".06em",textTransform:"uppercase",marginBottom:10}}>Formato (qualquer ordem de colunas)</div>
-        <table style={{borderCollapse:"collapse",fontSize:12,width:"100%"}}><thead><tr style={{background:"var(--purple-light)"}}>{["DATA","USUARIO","METODO","VALOR","PLANO"].map(h=><th key={h} style={{padding:"6px 12px",textAlign:"left",fontWeight:700,color:"#4330A8",borderBottom:"1px solid var(--border2)"}}>{h}</th>)}</tr></thead><tbody><tr>{["05/01/2025","debora.profe","PIX","39.90","Start"].map((v,i)=><td key={i} style={{padding:"6px 12px",color:"var(--text2)"}}>{v}</td>)}</tr></tbody></table>
-        <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Métodos: PIX · CARTÃO BRL · CARTÃO USD</div>
-      </div>
-      <div style={{border:"2px dashed var(--border2)",borderRadius:14,padding:"24px",textAlign:"center",marginBottom:18,cursor:"pointer",background:"var(--surface2)"}} onClick={()=>fileRef.current.click()}>
-        <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={handleFile}/>
-        <div style={{fontSize:28,marginBottom:8}}>📂</div><div style={{fontSize:13,fontWeight:600}}>Clique para selecionar</div>
-      </div>
+      {!preview&&<>
+        <div style={{background:"var(--surface2)",border:"1.5px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--text3)",letterSpacing:".06em",textTransform:"uppercase",marginBottom:10}}>Formato (qualquer ordem de colunas)</div>
+          <table style={{borderCollapse:"collapse",fontSize:12,width:"100%"}}><thead><tr style={{background:"var(--purple-light)"}}>{["DATA","USUARIO","METODO","VALOR","PLANO"].map(h=><th key={h} style={{padding:"6px 12px",textAlign:"left",fontWeight:700,color:"#4330A8",borderBottom:"1px solid var(--border2)"}}>{h}</th>)}</tr></thead><tbody><tr>{["05/01/2025","debora.profe","PIX","39.90","Start"].map((v,i)=><td key={i} style={{padding:"6px 12px",color:"var(--text2)"}}>{v}</td>)}</tr></tbody></table>
+          <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Métodos: PIX · CARTÃO BRL · CARTÃO USD</div>
+        </div>
+        <div style={{border:"2px dashed var(--border2)",borderRadius:14,padding:"24px",textAlign:"center",marginBottom:18,cursor:"pointer",background:"var(--surface2)"}} onClick={()=>fileRef.current.click()}>
+          <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={handleFile}/>
+          <div style={{fontSize:28,marginBottom:8}}>📂</div><div style={{fontSize:13,fontWeight:600}}>Clique para selecionar</div>
+        </div>
+      </>}
       {error&&<div style={{background:"var(--red-bg)",border:"1px solid var(--red)",borderRadius:10,padding:"10px 14px",fontSize:13,color:"var(--red)",marginBottom:14}}>{error}</div>}
       {preview&&(<>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>{[{label:"Pagamentos",val:preview.length,c:"var(--purple)"},{label:"Usuários novos",val:unkUsers.length,c:unkUsers.length>0?"var(--amber)":"var(--green)"}].map(k=><div key={k.label} style={{background:"var(--surface2)",borderRadius:12,padding:"12px 14px",border:"1px solid var(--border)"}}><div style={{fontSize:20,fontWeight:800,color:k.c}}>{k.val}</div><div style={{fontSize:10,fontWeight:600,color:"var(--text3)",marginTop:4,textTransform:"uppercase",letterSpacing:".05em"}}>{k.label}</div></div>)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>{[{label:"Pagamentos",val:preview.length,c:"var(--purple)"},{label:"Usuários novos",val:unkUsers.length,c:unkUsers.length>0?"var(--amber)":"var(--green)"},{label:"Planos a revisar",val:pendentes,c:pendentes>0?"var(--orange)":"var(--green)"}].map(k=><div key={k.label} style={{background:"var(--surface2)",borderRadius:12,padding:"12px 14px",border:"1px solid var(--border)"}}><div style={{fontSize:20,fontWeight:800,color:k.c}}>{k.val}</div><div style={{fontSize:10,fontWeight:600,color:"var(--text3)",marginTop:4,textTransform:"uppercase",letterSpacing:".05em"}}>{k.label}</div></div>)}</div>
+        {pendentes>0&&<div style={{background:"var(--orange-bg)",border:"1px solid var(--orange-dot)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"var(--orange)",marginBottom:12}}>⚠ {pendentes} pagamento(s) com valor quebrado (pró-rata de upgrade). O plano não foi detectado — escolha o plano certo nas linhas destacadas em laranja. O valor pago é mantido como está.</div>}
         {unkUsers.length>0&&<div style={{background:"var(--amber-bg)",border:"1px solid var(--amber-border)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"var(--amber)",marginBottom:12}}>Serão criados: <strong>{unkUsers.join(", ")}</strong></div>}
-        <Btn variant="success" onClick={()=>onImport(preview)}>✓ Importar {preview.length} pagamentos</Btn>
+        <div style={{overflowX:"auto",border:"1px solid var(--border)",borderRadius:12,marginBottom:14,maxHeight:380,overflowY:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:660}}>
+            <thead><tr style={{background:"var(--surface2)",position:"sticky",top:0}}>{["@ USUÁRIO","DATA","FORMA","VALOR (R$)","PLANO",""].map(h=><th key={h} style={{padding:"8px",textAlign:"left",fontSize:10,fontWeight:700,color:"var(--text3)",letterSpacing:".05em",borderBottom:"1.5px solid var(--border)"}}>{h}</th>)}</tr></thead>
+            <tbody>{preview.map(r=>(
+              <tr key={r._id} style={{background:r._proRata?"var(--orange-bg)":"transparent"}}>
+                <td style={{...cell,fontWeight:600}}>@{r.username}</td>
+                <td style={cell}><input type="date" style={inp} value={r.date} onChange={e=>setCell(r._id,"date",e.target.value)}/></td>
+                <td style={cell}><select style={inp} value={r.method} onChange={e=>setCell(r._id,"method",e.target.value)}><option>PIX</option><option>CARTÃO BRL</option><option>CARTÃO USD</option></select></td>
+                <td style={cell}><input style={inp} value={r.value_brl} onChange={e=>setCell(r._id,"value_brl",e.target.value.replace(",","."))}/></td>
+                <td style={cell}><select style={{...inp,borderColor:r._proRata?"var(--orange-dot)":"var(--border)",fontWeight:r._proRata?700:400}} value={r.plan} onChange={e=>setCell(r._id,"plan",e.target.value)}>{PLANS.map(p=><option key={p.name}>{p.name}</option>)}</select></td>
+                <td style={cell}><button onClick={()=>removeRow(r._id)} title="Remover esta linha" style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:16,lineHeight:1}}>×</button></td>
+              </tr>))}</tbody>
+          </table>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <Btn variant="success" onClick={()=>onImport(preview)}>✓ Importar {preview.length} pagamentos</Btn>
+          <Btn variant="ghost" onClick={()=>{setPreview(null);setError("");}}>Trocar arquivo</Btn>
+        </div>
       </>)}
       {!preview&&<Btn variant="secondary" onClick={onClose}>Cancelar</Btn>}
     </ModalWrap>
@@ -1799,7 +1832,28 @@ function TabMeses({subs,onUpdateSubs,onShowToast,onEditPay,onViewSub}){
   function prevMonth(){if(selMonth===0){setSelMonth(11);setSelYear(y=>y-1);}else setSelMonth(m=>m-1);}
   function nextMonth(){if(selMonth===11){setSelMonth(0);setSelYear(y=>y+1);}else setSelMonth(m=>m+1);}
   function handleDelete(row){if(!window.confirm(`Excluir pagamento de @${row.username} em ${fmtDate(row.date)}?`))return;onUpdateSubs(subs.map(s=>{if(s.username!==row.username)return s;const pmts=[...(s.payments||[])];pmts.splice(row.pmtIdx,1);return{...s,payments:pmts};}));onShowToast("Pagamento excluído");}
-  function handleImportPayments(parsed){const map={};subs.forEach(s=>{map[s.username]={...s,payments:[...(s.payments||[])]};});parsed.forEach(p=>{if(!map[p.username])map[p.username]={username:p.username,plan_name:p.plan||guessPlan(p.value_brl),plan_value:String(parseBRL(p.value_brl).toFixed(2)),currency:"BRL",due_day:"",notes:"",cancel_reason:"",status_history:[],payments:[]};const keys=new Set(map[p.username].payments.map(x=>x.date+"_"+(x.value_brl||x.value)));if(!keys.has(p.date+"_"+p.value_brl))map[p.username].payments.push({date:p.date,value_brl:p.value_brl,method:p.method});});Object.values(map).forEach(s=>s.payments.sort((a,b)=>a.date.localeCompare(b.date)));onUpdateSubs(Object.values(map));setShowImport(false);onShowToast(`✓ ${parsed.length} pagamentos importados`);}
+  function handleImportPayments(parsed){
+    const map={};subs.forEach(s=>{map[s.username]={...s,payments:[...(s.payments||[])]};});
+    // valor de tabela de cada plano (p/ ajustar a ficha/MRR sem mexer no valor real do pagamento)
+    const planValueOf=name=>{const p=PLANS.find(x=>x.name===name);return p&&p.value?String(p.value.toFixed(2)):null;};
+    parsed.forEach(p=>{
+      const planName=p.plan||guessPlan(p.value_brl);
+      const tableVal=planValueOf(planName);
+      if(!map[p.username]){
+        // novo assinante: ficha recebe o plano escolhido (valor de tabela, ou o pago se for "Personalizado")
+        map[p.username]={username:p.username,plan_name:planName,plan_value:tableVal||String(parseBRL(p.value_brl).toFixed(2)),currency:"BRL",due_day:"",notes:"",cancel_reason:"",status_history:[],payments:[]};
+      }else if(p.plan){
+        // existente: aplica o plano escolhido na tabela à ficha (corrige MRR no upgrade)
+        map[p.username].plan_name=planName;
+        if(tableVal)map[p.username].plan_value=tableVal;
+      }
+      // o PAGAMENTO sempre mantém o valor real (pró-rata), separado do plano
+      const keys=new Set(map[p.username].payments.map(x=>x.date+"_"+(x.value_brl||x.value)));
+      if(!keys.has(p.date+"_"+p.value_brl))map[p.username].payments.push({date:p.date,value_brl:p.value_brl,method:p.method});
+    });
+    Object.values(map).forEach(s=>s.payments.sort((a,b)=>a.date.localeCompare(b.date)));
+    onUpdateSubs(Object.values(map));setShowImport(false);onShowToast(`✓ ${parsed.length} pagamentos importados`);
+  }
   const thS=(key)=>({padding:"11px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:sortCol.col===key?"var(--purple)":"var(--text3)",letterSpacing:".07em",textTransform:"uppercase",whiteSpace:"nowrap",cursor:key?"pointer":"default",userSelect:"none",background:sortCol.col===key?"var(--purple-light)":"transparent",transition:"background .15s"});
   function toggleSort(key){setSortCol(c=>({col:key,dir:c.col===key&&c.dir==="asc"?"desc":"asc"}));}
   const si=(key)=>sortCol.col===key?(sortCol.dir==="asc"?"↑":"↓"):"↕";
