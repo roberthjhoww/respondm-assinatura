@@ -821,7 +821,7 @@ function ModalImportOriginal({subs,onImport,onClose}){
 
 /* Modal Import Payments */
 function ModalImportPayments({subs,onImport,onClose}){
-  const [preview,setPreview]=useState(null);const [error,setError]=useState("");const fileRef=useRef();
+  const [preview,setPreview]=useState(null);const [error,setError]=useState("");const [formFilter,setFormFilter]=useState("TODOS");const fileRef=useRef();
   // Cada linha vira editável: detecta plano pelo valor; valor "quebrado" (pró-rata) fica marcado p/ ajuste.
   function buildRows(parsed){
     return parsed.map((p,i)=>{
@@ -841,6 +841,10 @@ function ModalImportPayments({subs,onImport,onClose}){
   function removeRow(id){setPreview(rows=>rows.filter(r=>r._id!==id));}
   const unkUsers=preview?[...new Set(preview.filter(p=>!subs.find(s=>s.username===p.username)).map(p=>p.username))]:[];
   const pendentes=preview?preview.filter(r=>r._proRata).length:0;
+  // contadores por forma de pagamento
+  const counts=preview?preview.reduce((a,r)=>{a[r.method]=(a[r.method]||0)+1;return a;},{}):{};
+  const formFilters=[{id:"TODOS",label:"Todos"},{id:"PIX",label:"PIX"},{id:"CARTÃO BRL",label:"Cartão BRL"},{id:"CARTÃO USD",label:"Cartão USD"}];
+  const visiblePreview=preview?(formFilter==="TODOS"?preview:preview.filter(r=>r.method===formFilter)):[];
   const cell={padding:"6px 8px",borderBottom:"1px solid var(--border)",fontSize:12};
   const inp={padding:"5px 7px",borderRadius:7,border:"1.5px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:12,fontFamily:"inherit",width:"100%"};
   return(
@@ -862,10 +866,15 @@ function ModalImportPayments({subs,onImport,onClose}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:12}}>{[{label:"Pagamentos",val:preview.length,c:"var(--purple)"},{label:"Usuários novos",val:unkUsers.length,c:unkUsers.length>0?"var(--amber)":"var(--green)"},{label:"Planos a revisar",val:pendentes,c:pendentes>0?"var(--orange)":"var(--green)"}].map(k=><div key={k.label} style={{background:"var(--surface2)",borderRadius:12,padding:"12px 14px",border:"1px solid var(--border)"}}><div style={{fontSize:20,fontWeight:800,color:k.c}}>{k.val}</div><div style={{fontSize:10,fontWeight:600,color:"var(--text3)",marginTop:4,textTransform:"uppercase",letterSpacing:".05em"}}>{k.label}</div></div>)}</div>
         {pendentes>0&&<div style={{background:"var(--orange-bg)",border:"1px solid var(--orange-dot)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"var(--orange)",marginBottom:12}}>⚠ {pendentes} pagamento(s) com valor quebrado (pró-rata de upgrade). O plano não foi detectado — escolha o plano certo nas linhas destacadas em laranja. O valor pago é mantido como está.</div>}
         {unkUsers.length>0&&<div style={{background:"var(--amber-bg)",border:"1px solid var(--amber-border)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"var(--amber)",marginBottom:12}}>Serão criados: <strong>{unkUsers.join(", ")}</strong></div>}
+        <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+          {formFilters.map(f=>{const c=f.id==="TODOS"?preview.length:(counts[f.id]||0);const active=formFilter===f.id;return(
+            <button key={f.id} onClick={()=>setFormFilter(f.id)} style={{border:"1.5px solid "+(active?"var(--purple)":"var(--border)"),background:active?"var(--purple)":"var(--surface)",color:active?"#fff":"var(--text2)",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{f.label} ({c})</button>
+          );})}
+        </div>
         <div style={{overflowX:"auto",border:"1px solid var(--border)",borderRadius:12,marginBottom:14,maxHeight:380,overflowY:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
             <thead><tr style={{background:"var(--surface2)",position:"sticky",top:0}}>{["@ USUÁRIO","DATA","FORMA","USD / CÂMBIO","VALOR (R$)","INTL","PLANO",""].map(h=><th key={h} style={{padding:"8px",textAlign:"left",fontSize:10,fontWeight:700,color:"var(--text3)",letterSpacing:".05em",borderBottom:"1.5px solid var(--border)"}}>{h}</th>)}</tr></thead>
-            <tbody>{preview.map(r=>{
+            <tbody>{visiblePreview.map(r=>{
               const isUSD=r.method==="CARTÃO USD";const isCardBRL=r.method==="CARTÃO BRL";
               return(
               <tr key={r._id} style={{background:r._proRata?"var(--orange-bg)":"transparent"}}>
@@ -879,7 +888,9 @@ function ModalImportPayments({subs,onImport,onClose}){
                 <td style={cell}><button onClick={()=>removeRow(r._id)} title="Remover esta linha" style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:16,lineHeight:1}}>×</button></td>
               </tr>);})}</tbody>
           </table>
+          {visiblePreview.length===0&&<div style={{textAlign:"center",padding:"24px 0",color:"var(--text3)",fontSize:12}}>Nenhum pagamento com forma "{formFilter}".</div>}
         </div>
+        {formFilter!=="TODOS"&&<div style={{fontSize:11,color:"var(--text3)",marginTop:-8,marginBottom:12}}>Mostrando {visiblePreview.length} de {preview.length} · o botão importa todos.</div>}
         <div style={{display:"flex",gap:10}}>
           <Btn variant="success" onClick={()=>onImport(preview)}>✓ Importar {preview.length} pagamentos</Btn>
           <Btn variant="ghost" onClick={()=>{setPreview(null);setError("");}}>Trocar arquivo</Btn>
