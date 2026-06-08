@@ -379,9 +379,25 @@ function parseOriginalCSV(text){
 }
 function parsePaymentsCSV(text){
   const lines=text.split(/\r?\n/).filter(l=>l.trim());if(lines.length<2)return[];
-  const hi={};csvRow(lines[0]).forEach((h,i)=>{const k=h.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"");if(k.includes("usuario")||k.includes("user"))hi.user=i;else if(k.includes("data")||k.includes("date"))hi.date=i;else if(k.includes("forma")||k.includes("metodo")||k.includes("pgt")||k.includes("pag"))hi.method=i;else if(k.includes("valor")||k.includes("value"))hi.value=i;else if(k.includes("plano")||k.includes("plan"))hi.plan=i;});
+  const hi={};csvRow(lines[0]).forEach((h,i)=>{const k=h.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"");if(k.includes("usuario")||k.includes("user"))hi.user=i;else if(k.includes("data")||k.includes("date"))hi.date=i;else if(k.includes("cambio")||k.includes("exchange"))hi.cambio=i;else if(k.includes("internacional")||k.includes("intl")||k.includes("international"))hi.intl=i;else if(k.includes("forma")||k.includes("metodo")||k.includes("pgt")||k.includes("pag"))hi.method=i;else if(k.includes("valor")||k.includes("value"))hi.value=i;else if(k.includes("plano")||k.includes("plan"))hi.plan=i;});
   if(hi.date===undefined&&hi.user===undefined){hi.date=0;hi.user=1;hi.method=2;hi.value=3;hi.plan=4;}
-  return lines.slice(1).map(l=>{const row=csvRow(l);const rawDate=row[hi.date??0]?.trim();const username=row[hi.user??1]?.trim().replace(/^@/,"");const rawM=(row[hi.method??2]?.trim()||"PIX").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");const method=rawM.includes("CREDITO")||rawM.includes("CARTAO BRL")?"CARTÃO BRL":rawM.includes("USD")?"CARTÃO USD":"PIX";const value=parseBRL(row[hi.value??3]);const plan=row[hi.plan??4]?.trim()||"";if(!rawDate||!username||value<=0)return null;const iso=dateToISO(rawDate);if(!iso)return null;return{date:iso,username,method,value_brl:String(value.toFixed(2)),plan};}).filter(Boolean);
+  return lines.slice(1).map(l=>{const row=csvRow(l);const rawDate=row[hi.date??0]?.trim();const username=row[hi.user??1]?.trim().replace(/^@/,"");const rawM=(row[hi.method??2]?.trim()||"PIX").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");const method=rawM.includes("CREDITO")||rawM.includes("CARTAO BRL")?"CARTÃO BRL":rawM.includes("USD")?"CARTÃO USD":"PIX";const plan=row[hi.plan??4]?.trim()||"";if(!rawDate||!username)return null;const iso=dateToISO(rawDate);if(!iso)return null;
+    const rawValue=parseBRL(row[hi.value??3]);
+    const cambio=hi.cambio!==undefined?parseBRL(row[hi.cambio]):0;
+    const intl=hi.intl!==undefined&&["sim","s","true","1","x","yes"].includes((row[hi.intl]||"").toString().trim().toLowerCase());
+    const out={date:iso,username,method,plan};
+    if(method==="CARTÃO USD"){
+      const usd=rawValue;const rate=cambio>0?cambio:0;
+      if(usd<=0)return null;
+      out.value_usd=String(usd.toFixed(2));
+      out.exchange_rate=String(rate.toFixed(4));
+      out.value_brl=String((rate>0?usd*rate:usd).toFixed(2));
+    } else {
+      if(rawValue<=0)return null;
+      out.value_brl=String(rawValue.toFixed(2));
+      if(method==="CARTÃO BRL"&&intl)out.international=true;
+    }
+    return out;}).filter(Boolean);
 }
 
 /* tokens */
@@ -809,13 +825,19 @@ function ModalImportPayments({subs,onImport,onClose}){
   // Cada linha vira editável: detecta plano pelo valor; valor "quebrado" (pró-rata) fica marcado p/ ajuste.
   function buildRows(parsed){
     return parsed.map((p,i)=>{
-      const guessed=guessPlan(p.value_brl);
+      const guessed=p.plan&&PLANS.find(x=>x.name===p.plan)?p.plan:guessPlan(p.value_brl);
       const proRata=guessed==="Personalizado"; // valor não bate com nenhum plano → upgrade/pró-rata
-      return {...p,_id:i,plan:guessed,_proRata:proRata};
+      return {...p,_id:i,plan:guessed,_proRata:proRata,international:p.international||false};
     });
   }
+  // recalcula value_brl de uma linha USD quando muda valor USD ou câmbio
+  function recalcUSD(r){
+    if(r.method!=="CARTÃO USD")return r;
+    const usd=parseBRL(r.value_usd);const rate=parseBRL(r.exchange_rate);
+    return {...r,value_brl:String((rate>0?usd*rate:usd).toFixed(2))};
+  }
   function handleFile(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{try{const p=parsePaymentsCSV(ev.target.result);if(!p.length){setError("Nenhum pagamento encontrado.");return;}setPreview(buildRows(p));setError("");}catch(err){setError("Erro: "+err.message);}};r.readAsText(file,"UTF-8");}
-  function setCell(id,key,val){setPreview(rows=>rows.map(r=>{if(r._id!==id)return r;const nr={...r,[key]:val};if(key==="plan")nr._proRata=false;return nr;}));}
+  function setCell(id,key,val){setPreview(rows=>rows.map(r=>{if(r._id!==id)return r;let nr={...r,[key]:val};if(key==="plan")nr._proRata=false;if(key==="method"&&val!=="CARTÃO USD"){nr.value_usd=undefined;nr.exchange_rate=undefined;}if(key==="value_usd"||key==="exchange_rate"||key==="method")nr=recalcUSD(nr);return nr;}));}
   function removeRow(id){setPreview(rows=>rows.filter(r=>r._id!==id));}
   const unkUsers=preview?[...new Set(preview.filter(p=>!subs.find(s=>s.username===p.username)).map(p=>p.username))]:[];
   const pendentes=preview?preview.filter(r=>r._proRata).length:0;
@@ -828,7 +850,7 @@ function ModalImportPayments({subs,onImport,onClose}){
         <div style={{background:"var(--surface2)",border:"1.5px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:18}}>
           <div style={{fontSize:11,fontWeight:700,color:"var(--text3)",letterSpacing:".06em",textTransform:"uppercase",marginBottom:10}}>Formato (qualquer ordem de colunas)</div>
           <table style={{borderCollapse:"collapse",fontSize:12,width:"100%"}}><thead><tr style={{background:"var(--purple-light)"}}>{["DATA","USUARIO","METODO","VALOR","PLANO"].map(h=><th key={h} style={{padding:"6px 12px",textAlign:"left",fontWeight:700,color:"#4330A8",borderBottom:"1px solid var(--border2)"}}>{h}</th>)}</tr></thead><tbody><tr>{["05/01/2025","debora.profe","PIX","39.90","Start"].map((v,i)=><td key={i} style={{padding:"6px 12px",color:"var(--text2)"}}>{v}</td>)}</tr></tbody></table>
-          <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Métodos: PIX · CARTÃO BRL · CARTÃO USD</div>
+          <div style={{fontSize:11,color:"var(--text3)",marginTop:8,lineHeight:1.6}}>Métodos: PIX · CARTÃO BRL · CARTÃO USD<br/>Colunas opcionais: <strong>cambio</strong> (p/ USD — valor da coluna VALOR vai em dólar) · <strong>internacional</strong> (sim/não — cartão BRL intl, liquida D+5). Tudo isso também é editável na prévia.</div>
         </div>
         <div style={{border:"2px dashed var(--border2)",borderRadius:14,padding:"24px",textAlign:"center",marginBottom:18,cursor:"pointer",background:"var(--surface2)"}} onClick={()=>fileRef.current.click()}>
           <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={handleFile}/>
@@ -841,17 +863,21 @@ function ModalImportPayments({subs,onImport,onClose}){
         {pendentes>0&&<div style={{background:"var(--orange-bg)",border:"1px solid var(--orange-dot)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"var(--orange)",marginBottom:12}}>⚠ {pendentes} pagamento(s) com valor quebrado (pró-rata de upgrade). O plano não foi detectado — escolha o plano certo nas linhas destacadas em laranja. O valor pago é mantido como está.</div>}
         {unkUsers.length>0&&<div style={{background:"var(--amber-bg)",border:"1px solid var(--amber-border)",borderRadius:10,padding:"10px 14px",fontSize:12,color:"var(--amber)",marginBottom:12}}>Serão criados: <strong>{unkUsers.join(", ")}</strong></div>}
         <div style={{overflowX:"auto",border:"1px solid var(--border)",borderRadius:12,marginBottom:14,maxHeight:380,overflowY:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:660}}>
-            <thead><tr style={{background:"var(--surface2)",position:"sticky",top:0}}>{["@ USUÁRIO","DATA","FORMA","VALOR (R$)","PLANO",""].map(h=><th key={h} style={{padding:"8px",textAlign:"left",fontSize:10,fontWeight:700,color:"var(--text3)",letterSpacing:".05em",borderBottom:"1.5px solid var(--border)"}}>{h}</th>)}</tr></thead>
-            <tbody>{preview.map(r=>(
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
+            <thead><tr style={{background:"var(--surface2)",position:"sticky",top:0}}>{["@ USUÁRIO","DATA","FORMA","USD / CÂMBIO","VALOR (R$)","INTL","PLANO",""].map(h=><th key={h} style={{padding:"8px",textAlign:"left",fontSize:10,fontWeight:700,color:"var(--text3)",letterSpacing:".05em",borderBottom:"1.5px solid var(--border)"}}>{h}</th>)}</tr></thead>
+            <tbody>{preview.map(r=>{
+              const isUSD=r.method==="CARTÃO USD";const isCardBRL=r.method==="CARTÃO BRL";
+              return(
               <tr key={r._id} style={{background:r._proRata?"var(--orange-bg)":"transparent"}}>
                 <td style={{...cell,fontWeight:600}}>@{r.username}</td>
                 <td style={cell}><input type="date" style={inp} value={r.date} onChange={e=>setCell(r._id,"date",e.target.value)}/></td>
                 <td style={cell}><select style={inp} value={r.method} onChange={e=>setCell(r._id,"method",e.target.value)}><option>PIX</option><option>CARTÃO BRL</option><option>CARTÃO USD</option></select></td>
-                <td style={cell}><input style={inp} value={r.value_brl} onChange={e=>setCell(r._id,"value_brl",e.target.value.replace(",","."))}/></td>
+                <td style={cell}>{isUSD?<div style={{display:"flex",gap:4}}><input style={{...inp,width:64}} placeholder="USD" value={r.value_usd||""} onChange={e=>setCell(r._id,"value_usd",e.target.value.replace(",","."))}/><input style={{...inp,width:64}} placeholder="câmbio" value={r.exchange_rate||""} onChange={e=>setCell(r._id,"exchange_rate",e.target.value.replace(",","."))}/></div>:<span style={{color:"var(--text3)",fontSize:11}}>—</span>}</td>
+                <td style={cell}><input style={{...inp,...(isUSD?{background:"var(--surface2)",color:"var(--text3)"}:{})}} value={r.value_brl} readOnly={isUSD} title={isUSD?"Calculado: USD × câmbio":""} onChange={e=>!isUSD&&setCell(r._id,"value_brl",e.target.value.replace(",","."))}/></td>
+                <td style={{...cell,textAlign:"center"}}>{isCardBRL?<input type="checkbox" checked={!!r.international} onChange={e=>setCell(r._id,"international",e.target.checked)} title="Cartão internacional pagando em BRL (D+5)" style={{accentColor:"var(--purple)",width:15,height:15,cursor:"pointer"}}/>:<span style={{color:"var(--text3)",fontSize:11}}>—</span>}</td>
                 <td style={cell}><select style={{...inp,borderColor:r._proRata?"var(--orange-dot)":"var(--border)",fontWeight:r._proRata?700:400}} value={r.plan} onChange={e=>setCell(r._id,"plan",e.target.value)}>{PLANS.map(p=><option key={p.name}>{p.name}</option>)}</select></td>
                 <td style={cell}><button onClick={()=>removeRow(r._id)} title="Remover esta linha" style={{border:"none",background:"none",cursor:"pointer",color:"var(--text3)",fontSize:16,lineHeight:1}}>×</button></td>
-              </tr>))}</tbody>
+              </tr>);})}</tbody>
           </table>
         </div>
         <div style={{display:"flex",gap:10}}>
@@ -1849,7 +1875,12 @@ function TabMeses({subs,onUpdateSubs,onShowToast,onEditPay,onViewSub}){
       }
       // o PAGAMENTO sempre mantém o valor real (pró-rata), separado do plano
       const keys=new Set(map[p.username].payments.map(x=>x.date+"_"+(x.value_brl||x.value)));
-      if(!keys.has(p.date+"_"+p.value_brl))map[p.username].payments.push({date:p.date,value_brl:p.value_brl,method:p.method});
+      if(!keys.has(p.date+"_"+p.value_brl)){
+        const pmt={date:p.date,value_brl:p.value_brl,method:p.method};
+        if(p.method==="CARTÃO USD"){if(p.value_usd)pmt.value_usd=p.value_usd;if(p.exchange_rate&&parseFloat(p.exchange_rate)>0)pmt.exchange_rate=p.exchange_rate;}
+        if(p.method==="CARTÃO BRL"&&p.international)pmt.international=true;
+        map[p.username].payments.push(pmt);
+      }
     });
     Object.values(map).forEach(s=>s.payments.sort((a,b)=>a.date.localeCompare(b.date)));
     onUpdateSubs(Object.values(map));setShowImport(false);onShowToast(`✓ ${parsed.length} pagamentos importados`);
