@@ -79,7 +79,8 @@ const AUTHORIZED_EMAILS=["roberthjhow@gmail.com","pablonatan.d.r.s@gmail.com"];
    ───────────────────────────────────────────── */
 const fbDB=window.fbDB, fbAuth=window.fbAuth;
 
-// Firestore rejeita valores `undefined` — remove recursivamente antes de salvar
+// Firestore rejeita `undefined`, `NaN` e `Infinity` — limpa recursivamente antes de salvar.
+// (NaN/Infinity num único campo derrubam o batch inteiro silenciosamente.)
 function stripUndefined(v){
   if(Array.isArray(v))return v.map(stripUndefined);
   if(v&&typeof v==="object"){
@@ -87,6 +88,7 @@ function stripUndefined(v){
     for(const k in v){if(v[k]!==undefined)o[k]=stripUndefined(v[k]);}
     return o;
   }
+  if(typeof v==="number"&&!isFinite(v))return null; // NaN/Infinity → null (aceito pelo Firestore)
   return v;
 }
 
@@ -94,13 +96,32 @@ function stripUndefined(v){
 async function fbSaveSubs(subs){
   if(!fbDB)return;
   const col=fbDB.collection("assinantes");
-  // Firestore limita 500 ops por batch
-  const chunks=[];for(let i=0;i<subs.length;i+=450)chunks.push(subs.slice(i,i+450));
-  for(const chunk of chunks){
-    const batch=fbDB.batch();
-    chunk.forEach(s=>batch.set(col.doc(s.username),stripUndefined(s)));
-    await batch.commit();
+  // Saneia: ignora docs com username inválido como ID do Firestore (vazio, com "/", "."/"..").
+  const valid=[],skipped=[];
+  for(const s of subs){
+    const u=(s.username||"").trim();
+    if(!u||u==="."||u===".."||u.includes("/")){skipped.push(s.username);continue;}
+    valid.push(s);
   }
+  if(skipped.length)console.warn("[fbSaveSubs] usernames inválidos ignorados:",skipped);
+  // Firestore limita 500 ops por batch
+  const chunks=[];for(let i=0;i<valid.length;i+=450)chunks.push(valid.slice(i,i+450));
+  const falhas=[];
+  for(const chunk of chunks){
+    try{
+      const batch=fbDB.batch();
+      chunk.forEach(s=>batch.set(col.doc(s.username),stripUndefined(s)));
+      await batch.commit();
+    }catch(e){
+      // Se o batch falhar (1 doc ruim derruba todos), salva um a um p/ isolar o culpado.
+      console.error("[fbSaveSubs] batch falhou, salvando individual:",e&&e.message);
+      for(const s of chunk){
+        try{await col.doc(s.username).set(stripUndefined(s));}
+        catch(e2){falhas.push(s.username);console.error("[fbSaveSubs] FALHOU @"+s.username+":",e2&&e2.message);}
+      }
+    }
+  }
+  if(falhas.length)throw new Error("Não sincronizou: "+falhas.join(", "));
 }
 // Salva/atualiza um único assinante (rápido — uso no dia a dia)
 async function fbSaveSub(sub){
