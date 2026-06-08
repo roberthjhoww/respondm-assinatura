@@ -126,7 +126,7 @@ async function fbLoadDoc(name){
   const d=await fbDB.collection("config").doc(name).get();
   return d.exists?d.data().data:null;
 }
-const PLANS=[{name:"PRO",value:39.90},{name:"GROW",value:69.90},{name:"PLUS",value:99.90},{name:"Personalizado",value:0}];
+const PLANS=[{name:"Start",value:39.90},{name:"Creator",value:59.90},{name:"Pro",value:89.90},{name:"Viral",value:119.90},{name:"Personalizado",value:0}];
 const METHODS=[{id:"PIX",label:"PIX",fee:0.0099,currency:"BRL"},{id:"CARTÃO BRL",label:"Cartão BRL",fee:0.03985,currency:"BRL"},{id:"CARTÃO USD",label:"Cartão USD",fee:0.05985,currency:"USD"}];
 const STRIPE_FIXED_FEE=0.39; // R$0,39 por transação (Stripe BRL e USD)
 function calcFee(a,id){
@@ -183,7 +183,7 @@ function parseBRL(s){if(!s)return 0;const str=String(s).trim();// Handle Brazili
 if(str.includes(","))return parseFloat(str.replace(/\./g,"").replace(",","."))||0;// Already dot decimal: 1354.61
 return parseFloat(str.replace(/[^0-9.]/g,""))||0;}
 function dateToISO(s){if(!s)return null;const p=s.split(" ")[0];if(p.includes("-"))return p.substring(0,10);const[d,m,y]=p.split("/");if(!d||!m||!y)return null;return`${y.padStart(4,"0")}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`;}
-function guessPlan(v){const n=parseFloat(v||0);if(Math.abs(n-39.90)<.05)return"PRO";if(Math.abs(n-69.90)<.05)return"GROW";if(Math.abs(n-99.90)<.05)return"PLUS";return"Personalizado";}
+function guessPlan(v){const n=parseFloat(v||0);if(Math.abs(n-39.90)<.05)return"Start";if(Math.abs(n-59.90)<.05)return"Creator";if(Math.abs(n-89.90)<.05)return"Pro";if(Math.abs(n-119.90)<.05)return"Viral";return"Personalizado";}
 function getMethod(id){return METHODS.find(m=>m.id===id)||METHODS[0];}
 function calcNet(a,id){return parseFloat((a-calcFee(a,id)).toFixed(2));}
 function pmtBRL(p){return parseFloat(p.value_brl||p.value||0);}
@@ -386,7 +386,7 @@ function parsePaymentsCSV(text){
 
 /* tokens */
 const STATUS_META={"ATIVO":{bg:"var(--purple-light)",color:"#4330A8",dot:"var(--purple)"},"AGUARDANDO PAGAMENTO":{bg:"var(--orange-bg)",color:"var(--orange)",dot:"var(--orange-dot)"},"CANCELADO 7 DIAS":{bg:"#FEF0E4",color:"#8B3A00",dot:"#E07020"},"CANCELADO 30 DIAS":{bg:"var(--amber-bg)",color:"#7A4F00",dot:"#C48A14"},"CANCELADO 60 DIAS":{bg:"#FDEAEA",color:"#8B1A1A",dot:"#C84040"},"CANCELADO 100+":{bg:"var(--surface2)",color:"var(--text2)",dot:"var(--text3)"},"SEM PAG.":{bg:"var(--surface2)",color:"var(--text2)",dot:"var(--text3)"}};
-const PLAN_META={"PRO":{bg:"var(--purple-light)",color:"#4330A8"},"GROW":{bg:"var(--green-bg)",color:"var(--green)"},"PLUS":{bg:"var(--blue-bg)",color:"var(--blue)"},"Personalizado":{bg:"var(--surface2)",color:"var(--text2)"}};
+const PLAN_META={"Start":{bg:"var(--surface2)",color:"var(--text2)"},"Creator":{bg:"var(--blue-bg)",color:"var(--blue)"},"Pro":{bg:"var(--purple-light)",color:"#4330A8"},"Viral":{bg:"var(--green-bg)",color:"var(--green)"},"Personalizado":{bg:"var(--surface2)",color:"var(--text2)"}};
 const METHOD_META={"PIX":{bg:"var(--green-bg)",color:"var(--green)"},"CARTÃO BRL":{bg:"var(--purple-light)",color:"#4330A8"},"CARTÃO USD":{bg:"var(--blue-bg)",color:"var(--blue)"}};
 
 /* atoms */
@@ -441,7 +441,7 @@ function MTitle({children}){return <div style={{fontSize:16,fontWeight:800,margi
 
 /* Modal Sub */
 function ModalSub({data,subs,onSave,onDelete,onClose,onGoToUser,onPayUser}){
-  const [form,setForm]=useState(data?{...data}:{username:"",plan_name:"PRO",plan_value:"39.90",currency:"BRL",due_day:"",notes:"",cancel_reason:"",status_history:[],payments:[]});
+  const [form,setForm]=useState(data?{...data}:{username:"",plan_name:"Pro",plan_value:"89.90",currency:"BRL",due_day:"",notes:"",cancel_reason:"",status_history:[],payments:[]});
   const [err,setErr]=useState("");
   const [dupUser,setDupUser]=useState(null);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
@@ -813,7 +813,7 @@ function ModalImportPayments({subs,onImport,onClose}){
       <MTitle>Importar pagamentos</MTitle>
       <div style={{background:"var(--surface2)",border:"1.5px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:18}}>
         <div style={{fontSize:11,fontWeight:700,color:"var(--text3)",letterSpacing:".06em",textTransform:"uppercase",marginBottom:10}}>Formato (qualquer ordem de colunas)</div>
-        <table style={{borderCollapse:"collapse",fontSize:12,width:"100%"}}><thead><tr style={{background:"var(--purple-light)"}}>{["DATA","USUARIO","METODO","VALOR","PLANO"].map(h=><th key={h} style={{padding:"6px 12px",textAlign:"left",fontWeight:700,color:"#4330A8",borderBottom:"1px solid var(--border2)"}}>{h}</th>)}</tr></thead><tbody><tr>{["05/01/2025","debora.profe","PIX","39.90","PRO"].map((v,i)=><td key={i} style={{padding:"6px 12px",color:"var(--text2)"}}>{v}</td>)}</tr></tbody></table>
+        <table style={{borderCollapse:"collapse",fontSize:12,width:"100%"}}><thead><tr style={{background:"var(--purple-light)"}}>{["DATA","USUARIO","METODO","VALOR","PLANO"].map(h=><th key={h} style={{padding:"6px 12px",textAlign:"left",fontWeight:700,color:"#4330A8",borderBottom:"1px solid var(--border2)"}}>{h}</th>)}</tr></thead><tbody><tr>{["05/01/2025","debora.profe","PIX","39.90","Start"].map((v,i)=><td key={i} style={{padding:"6px 12px",color:"var(--text2)"}}>{v}</td>)}</tr></tbody></table>
         <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Métodos: PIX · CARTÃO BRL · CARTÃO USD</div>
       </div>
       <div style={{border:"2px dashed var(--border2)",borderRadius:14,padding:"24px",textAlign:"center",marginBottom:18,cursor:"pointer",background:"var(--surface2)"}} onClick={()=>fileRef.current.click()}>
@@ -951,7 +951,7 @@ function ModalMotivo({sub,onSave,onClose}){
 /* ── Modal: editar mensagens de recuperação (4 fases) ── */
 function ModalMsgRecuperacao({msgTpl,subs,onSave,onClose}){
   const [vals,setVals]=useState({rec_quente:msgTpl.rec_quente,rec_morno:msgTpl.rec_morno,rec_frio:msgTpl.rec_frio,rec_perdido:msgTpl.rec_perdido});
-  const exemplo=subs[0]||{username:"exemplo",plan_name:"PRO",plan_value:"39.90",payments:[]};
+  const exemplo=subs[0]||{username:"exemplo",plan_name:"Pro",plan_value:"89.90",payments:[]};
   const taArea={padding:"10px 12px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,width:"100%",minHeight:74,resize:"vertical",fontFamily:"inherit"};
   return(
     <ModalWrap onClose={onClose} wide>
@@ -3334,7 +3334,7 @@ function ModalPixLote({subs,pixLotes,date,onSave,onClose}){
 function ModalMensagem({msgTpl,subs,onSave,onClose}){
   const [vencendo,setVencendo]=useState(msgTpl.vencendo);
   const [atrasado,setAtrasado]=useState(msgTpl.atrasado);
-  const exemplo=subs[0]||{username:"exemplo",plan_name:"PRO",plan_value:"39.90",payments:[{date:todayStr(),value_brl:"39.90",method:"PIX"}]};
+  const exemplo=subs[0]||{username:"exemplo",plan_name:"Pro",plan_value:"89.90",payments:[{date:todayStr(),value_brl:"89.90",method:"PIX"}]};
   const taArea={padding:"10px 12px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--surface)",color:"var(--text)",fontSize:13,width:"100%",minHeight:80,resize:"vertical",fontFamily:"inherit"};
   return(
     <ModalWrap onClose={onClose} wide>
@@ -3567,7 +3567,23 @@ function App(){
     update(newSubs);setModal(null);showToast("Pagamento atualizado");
   }
 
-  function handleImportOriginal(result){update(result);setModal(null);showToast(`✓ ${result.length} assinantes importados`);}
+  function handleImportOriginal(result){
+    // Mescla em vez de substituir: mantém assinantes atuais (vencimento, notas, motivo)
+    // e soma apenas os pagamentos que ainda não existem (compara data+valor p/ não duplicar).
+    const map={};subs.forEach(s=>{map[s.username]={...s,payments:[...(s.payments||[])]};});
+    let novos=0,atualizados=0,pagsAdd=0;
+    result.forEach(r=>{
+      const existente=map[r.username];
+      if(!existente){map[r.username]={...r,payments:[...(r.payments||[])]};novos++;pagsAdd+=(r.payments||[]).length;return;}
+      const keys=new Set(existente.payments.map(x=>x.date+"_"+(x.value_brl||x.value)));
+      let addedHere=0;
+      (r.payments||[]).forEach(p=>{const k=p.date+"_"+(p.value_brl||p.value);if(!keys.has(k)){existente.payments.push(p);keys.add(k);addedHere++;}});
+      if(addedHere>0){pagsAdd+=addedHere;atualizados++;}
+    });
+    Object.values(map).forEach(s=>s.payments.sort((a,b)=>a.date.localeCompare(b.date)));
+    update(Object.values(map));setModal(null);
+    showToast(`✓ ${novos} novos · ${atualizados} atualizados · ${pagsAdd} pagamentos somados`);
+  }
 
   // Preenche due_day de ativos sem vencimento a partir do último pagamento
   function fillAllDueDay(){
