@@ -123,6 +123,31 @@ async function fbSaveSubs(subs){
   }
   if(falhas.length)throw new Error("Não sincronizou: "+falhas.join(", "));
 }
+// Salva SÓ o que mudou entre `prev` e `next` (economiza cota do Firestore).
+// Grava apenas docs novos/alterados e apaga os removidos. Retorna quantos foram escritos.
+async function fbSaveSubsDiff(prev,next){
+  if(!fbDB)return 0;
+  const col=fbDB.collection("assinantes");
+  const prevMap={};(prev||[]).forEach(s=>{if(s&&s.username)prevMap[s.username]=JSON.stringify(stripUndefined(s));});
+  const nextMap={};(next||[]).forEach(s=>{if(s&&s.username)nextMap[s.username]=s;});
+  const changed=[],removed=[],falhas=[];
+  // novos ou alterados
+  for(const u in nextMap){
+    const s=nextMap[u];const u2=(u||"").trim();
+    if(!u2||u2==="."||u2===".."||u2.includes("/")){console.warn("[diff] username inválido ignorado:",u);continue;}
+    if(prevMap[u]!==JSON.stringify(stripUndefined(s)))changed.push(s);
+  }
+  // removidos (estavam em prev, não estão em next)
+  for(const u in prevMap){if(!(u in nextMap))removed.push(u);}
+  // grava alterados, um a um (isola falhas e não estoura batch)
+  for(const s of changed){
+    try{await col.doc(s.username).set(stripUndefined(s));}
+    catch(e){falhas.push(s.username);console.error("[diff] FALHOU @"+s.username+":",e&&e.message);}
+  }
+  for(const u of removed){try{await col.doc(u).delete();}catch(e){console.error("[diff] del falhou @"+u,e&&e.message);}}
+  if(falhas.length)throw new Error("Não sincronizou: "+falhas.join(", "));
+  return changed.length+removed.length;
+}
 // Salva/atualiza um único assinante (rápido — uso no dia a dia)
 async function fbSaveSub(sub){
   if(!fbDB)return;
@@ -3558,6 +3583,8 @@ function App(){
   const [showShortcuts,setShowShortcuts]=useState(false);
   const [denied,setDenied]=useState(false);        // logou mas email não autorizado
   const globalSearchRef=useRef();const jsonRestoreRef=useRef();const cloudJsonRef=useRef();
+  const subsRef=useRef([]); // espelha o último estado de `subs` salvo, p/ o diff de sincronização
+  useEffect(()=>{subsRef.current=subs;},[subs]); // mantém o ref sincronizado (carga da nuvem/cache)
 
   useEffect(()=>{document.body.classList.toggle("dark",dark);localStorage.setItem("rdm_dark",dark?"1":"0");},[dark]);
   useEffect(()=>{if(showGlobalSearch&&globalSearchRef.current)globalSearchRef.current.focus();},[showGlobalSearch]);
@@ -3611,7 +3638,7 @@ function App(){
 
   function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
   // update salva localStorage na hora e sincroniza com a nuvem em segundo plano
-  function update(next){setSubs(next);try{localStorage.setItem(STORAGE_KEY,JSON.stringify(next));}catch(_){}fbSaveSubs(next).catch(()=>showToast("⚠ Falha ao sincronizar com a nuvem.","error"));}
+  function update(next){const prev=subsRef.current;setSubs(next);subsRef.current=next;try{localStorage.setItem(STORAGE_KEY,JSON.stringify(next));}catch(_){}fbSaveSubsDiff(prev,next).catch(e=>showToast("⚠ Falha ao sincronizar: "+(e&&e.message||"erro"),"error"));}
   function updateGroups(next){setGroups(next);try{localStorage.setItem(GROUPS_KEY,JSON.stringify(next));}catch(_){}fbSaveDoc("grupos",next).catch(()=>{});}
   function saveMetas(key,val){setMetas(prev=>{const next={...prev,[key]:val};try{localStorage.setItem(METAS_KEY,JSON.stringify(next));}catch(_){}fbSaveDoc("metas",next).catch(()=>{});return next;});}
   function saveFin(next){setFin(next);try{localStorage.setItem(FIN_KEY,JSON.stringify(next));}catch(_){}fbSaveDoc("financeiro",next).catch(()=>{});}
