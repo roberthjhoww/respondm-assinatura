@@ -579,6 +579,7 @@ function ModalPay({sub,onSave,onClose,skipLabel}){
   const [valueUSD,setValueUSD]=useState("");const [exchangeRate,setExchangeRate]=useState("5.80");
   const [discountOn,setDiscountOn]=useState(false);const [discountType,setDiscountType]=useState("fixed");const [discountVal,setDiscountVal]=useState("");
   const [intlBRL,setIntlBRL]=useState(false);
+  const [planChange,setPlanChange]=useState(false);const [newPlan,setNewPlan]=useState(sub.plan_name&&PLANS.find(x=>x.name===sub.plan_name)?sub.plan_name:"Start");
   const m=getMethod(method);const isUSD=m.currency==="USD";
   // Aviso de pagamento recente: outro pagamento nos últimos 25 dias
   const recentPmt=(sub.payments||[]).filter(p=>{if(!p.date)return false;const diff=Math.round((parseLocal(date)-parseLocal(p.date))/86400000);return diff>=0&&diff<25;}).sort((a,b)=>b.date.localeCompare(a.date))[0];
@@ -586,8 +587,10 @@ function ModalPay({sub,onSave,onClose,skipLabel}){
   const discAmt=discountOn?(discountType==="percent"?parseFloat((gross*parseBRL(discountVal)/100).toFixed(2)):parseBRL(discountVal)):0;
   const discounted=Math.max(0,gross-discAmt);
   const fee=calcFee(discounted,method);const net=calcNet(discounted,method);
-  function handleSave(){const pmt={date,method,value_brl:String(gross.toFixed(2))};if(discountOn&&discAmt>0)pmt.discount=String(discAmt.toFixed(2));if(isUSD){pmt.value_usd=String(parseBRL(valueUSD).toFixed(2));pmt.exchange_rate=String(parseBRL(exchangeRate).toFixed(4));}if(method==="CARTÃO BRL"&&intlBRL)pmt.international=true;onSave(pmt);}
+  function handleSave(){const pmt={date,method,value_brl:String(gross.toFixed(2))};if(discountOn&&discAmt>0)pmt.discount=String(discAmt.toFixed(2));if(isUSD){pmt.value_usd=String(parseBRL(valueUSD).toFixed(2));pmt.exchange_rate=String(parseBRL(exchangeRate).toFixed(4));}if(method==="CARTÃO BRL"&&intlBRL)pmt.international=true;if(planChange&&newPlan&&newPlan!==sub.plan_name){pmt.plan=newPlan;pmt.is_upgrade=true;}onSave(pmt);}
   const wasCancelled=["CANCELADO 7 DIAS","CANCELADO 30 DIAS","CANCELADO 60 DIAS","CANCELADO 100+"].includes(computeStatus(sub));
+  const suggestedPlan=guessPlan(gross);
+  const planMismatch=!planChange&&gross>0&&suggestedPlan!=="Personalizado"&&suggestedPlan!==sub.plan_name;
   return(
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <MTitle>Registrar pagamento</MTitle>
@@ -599,7 +602,7 @@ function ModalPay({sub,onSave,onClose,skipLabel}){
       {wasCancelled&&<div style={{background:"var(--green-bg)",border:"1px solid var(--green)",borderRadius:10,padding:"8px 12px",fontSize:12,color:"var(--green)"}}>O dia de vencimento será atualizado para o dia deste pagamento.</div>}
       <FInput label="Data" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
       {sub.due_day&&date===suggestPayDate(sub)&&date!==todayStr()&&<div style={{fontSize:11,color:"var(--blue)",marginTop:-8}}>📅 Data preenchida pelo dia de vencimento ({sub.due_day}). Ajuste se o cliente pagou em outra data.</div>}
-      {recentPmt&&!wasCancelled&&<div style={{background:"var(--amber-bg)",border:"1px solid var(--amber-border)",borderRadius:10,padding:"8px 12px",fontSize:12,color:"var(--amber)"}}>⚠ @{sub.username} já tem um pagamento de {fmtBRL(pmtBRL(recentPmt))} em {fmtDate(recentPmt.date)} (há {Math.round((parseLocal(date)-parseLocal(recentPmt.date))/86400000)} dias). Confira se não é duplicado.</div>}
+      {recentPmt&&!wasCancelled&&!planChange&&<div style={{background:"var(--amber-bg)",border:"1px solid var(--amber-border)",borderRadius:10,padding:"8px 12px",fontSize:12,color:"var(--amber)"}}>⚠ @{sub.username} já tem um pagamento de {fmtBRL(pmtBRL(recentPmt))} em {fmtDate(recentPmt.date)} (há {Math.round((parseLocal(date)-parseLocal(recentPmt.date))/86400000)} dias). Confira se não é duplicado.</div>}
       <FSelect label="Método" value={method} onChange={e=>setMethod(e.target.value)}>{METHODS.map(m=><option key={m.id} value={m.id}>{m.label} ({(m.fee*100).toFixed(2).replace(".",",")}%)</option>)}</FSelect>
       {method==="CARTÃO BRL"&&<label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,color:"var(--text2)",background:"var(--surface2)",borderRadius:9,padding:"9px 13px",border:"1px solid var(--border)"}}><input type="checkbox" checked={intlBRL} onChange={e=>setIntlBRL(e.target.checked)} style={{accentColor:"var(--purple)",width:14,height:14}}/><span>Cartão internacional pagando em BRL <span style={{fontSize:11,color:"var(--blue)",fontWeight:600}}>(D+5 úteis)</span></span></label>}
       {isUSD?(
@@ -610,6 +613,13 @@ function ModalPay({sub,onSave,onClose,skipLabel}){
       ):(
         <FInput label="Valor bruto (R$)" value={valueBRL} onChange={e=>setValueBRL(e.target.value)}/>
       )}
+      {planMismatch&&<div style={{background:"var(--blue-bg)",borderRadius:10,padding:"9px 13px",fontSize:12,color:"var(--blue)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}><span>Esse valor é do plano <strong>{suggestedPlan}</strong>, mas @{sub.username} está em {sub.plan_name||"—"}.</span><Btn size="sm" variant="secondary" onClick={()=>{setNewPlan(suggestedPlan);setPlanChange(true);}}>É upgrade</Btn></div>}
+      <div>
+        <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,color:"var(--text2)",fontWeight:500}}>
+          <input type="checkbox" checked={planChange} onChange={e=>setPlanChange(e.target.checked)} style={{accentColor:"var(--purple)",width:15,height:15}}/>Mudança de plano (upgrade/downgrade)
+        </label>
+        {planChange&&<div style={{marginTop:10}}><FSelect label="Novo plano" value={newPlan} onChange={e=>setNewPlan(e.target.value)}>{PLANS.map(p=><option key={p.name}>{p.name}</option>)}</FSelect><div style={{fontSize:11,color:"var(--blue)",marginTop:6}}>A ficha de @{sub.username} passa de {sub.plan_name||"—"} para <strong>{newPlan}</strong> (valor de tabela, corrige o MRR). O pagamento mantém o valor real{gross>0?` de ${fmtBRL(gross)}`:""} (pró-rata).</div></div>}
+      </div>
       <div>
         <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,color:"var(--text2)",fontWeight:500}}>
           <input type="checkbox" checked={discountOn} onChange={e=>setDiscountOn(e.target.checked)} style={{accentColor:"var(--purple)",width:15,height:15}}/>Aplicar desconto
@@ -3691,13 +3701,19 @@ function App(){
       wasCancelled=pmtDate>=saiuDoPro;
     }
     const newDay=wasCancelled?String(parseInt(pmt.date.split("-")[2])):sub.due_day;
-    const pmtFinal=wasCancelled?{...pmt,is_reactivation:true}:pmt;
+    // Mudança de plano (upgrade/downgrade): atualiza a ficha igual ao import por CSV
+    const planValueOf=name=>{const p=PLANS.find(x=>x.name===name);return p&&p.value?String(p.value.toFixed(2)):null;};
+    const planUpdate={};
+    if(pmt.plan&&pmt.plan!==sub.plan_name){planUpdate.plan_name=pmt.plan;const tv=planValueOf(pmt.plan);if(tv)planUpdate.plan_value=tv;}
+    const {plan:_dropPlan,...pmtStored}=pmt; // o plano vai pra ficha, não fica no pagamento
+    const pmtFinal=wasCancelled?{...pmtStored,is_reactivation:true}:pmtStored;
     const history=[...(sub.status_history||[])];
     if(wasCancelled)history.push({status:"REATIVAÇÃO",date:pmt.date,note:"Pagamento após cancelamento"});
-    history.push({status:"ATIVO",date:pmt.date,note:wasCancelled?"Reativado":"Pagamento registrado"});
-    update(subs.map(s=>s.username!==sub.username?s:{...s,due_day:newDay,status_history:history,payments:[...(s.payments||[]),pmtFinal]}));
+    history.push({status:"ATIVO",date:pmt.date,note:wasCancelled?"Reativado":(planUpdate.plan_name?`Upgrade para ${planUpdate.plan_name}`:"Pagamento registrado")});
+    update(subs.map(s=>s.username!==sub.username?s:{...s,...planUpdate,due_day:newDay,status_history:history,payments:[...(s.payments||[]),pmtFinal]}));
     setModal(null);
     if(wasCancelled)showToast(`↻ @${sub.username} reativado! Dia de vencimento atualizado para ${newDay}.`);
+    else if(planUpdate.plan_name)showToast(`✓ Pagamento registrado. @${sub.username} atualizado para ${planUpdate.plan_name}.`);
   }
 
   function deletePayFromSorted(sub,idx){
