@@ -6,9 +6,10 @@
 <title>responDM · Assinaturas</title>
 <!-- Favicon: ícone "DM" no roxo do ResponDM, embutido (sem arquivo externo) -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237447E1'/%3E%3Ctext x='32' y='44' font-family='Arial,Helvetica,sans-serif' font-size='30' font-weight='bold' fill='%23ffffff' text-anchor='middle'%3EDM%3C/text%3E%3C/svg%3E"/>
-<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- Versões FIXAS de propósito. Sem fixar, o @babel/standalone pulou p/ a v8 (06/2026) e quebrou o transform (tela branca). NÃO remover os números de versão. -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <!-- Firebase SDK (compat: expõe window.firebase, funciona com o Babel inline) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
